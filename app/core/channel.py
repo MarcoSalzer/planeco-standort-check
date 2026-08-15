@@ -12,6 +12,17 @@ würde sonst auch bei "googlemail" oder einem Kampagnennamen wie
 "google-partner-blog" zuschlagen — falsch, aber unauffällig falsch.
 """
 
+# Exakter Wortlaut der Select-Optionen im Formular (Konzept §3.2) — einzige
+# Quelle für Formular-Rendering UND Kanal-Zuordnung, damit beide nie
+# auseinanderlaufen.
+HEARD_ABOUT_OPTIONS = (
+    "Google-Suche",
+    "Google-Anzeige",
+    "Facebook oder Instagram",
+    "Empfehlung",
+    "Sonstiges",
+)
+
 _HEARD_ABOUT_CHANNEL = {
     "google-suche": "google_organisch",
     "google-anzeige": "google_ads",

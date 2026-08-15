@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kostenloser Standort-Check</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --text: #1a1a1a;
+      --muted: #5a5a5a;
+      --border: #c9c9c9;
+      --focus: #0a5cd8;
+      --bg: #fafafa;
+      --card: #ffffff;
+      --error: #b3261e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.25rem 1rem 3rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.4;
+    }
+    main {
+      max-width: 34rem;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: 0.75rem;
+      padding: 1.5rem 1.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin: 0 0 0.25rem;
+    }
+    p.intro {
+      color: var(--muted);
+      margin: 0 0 1.5rem;
+    }
+    fieldset {
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem 1rem;
+      margin: 0 0 1.25rem;
+    }
+    legend {
+      font-weight: 600;
+      padding: 0 0.4rem;
+    }
+    .field {
+      margin-bottom: 1.1rem;
+    }
+    .field:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"],
+    select,
+    textarea {
+      width: 100%;
+      min-height: 44px;
+      padding: 0.6rem 0.7rem;
+      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 0.4rem;
+      background: #fff;
+      color: var(--text);
+      font-family: inherit;
+    }
+    textarea {
+      min-height: 5.5rem;
+      resize: vertical;
+    }
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 1px;
+    }
+    .radio-group {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .radio-option {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      font-weight: 400;
+      cursor: pointer;
+    }
+    .radio-option input {
+      width: 1.2rem;
+      height: 1.2rem;
+    }
+    .checkbox-field {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      min-height: 44px;
+      cursor: pointer;
+      font-weight: 400;
+    }
+    .checkbox-field input {
+      width: 1.2rem;
+      height: 1.2rem;
+      margin-top: 0.15rem;
+      flex-shrink: 0;
+    }
+    button[type="submit"] {
+      width: 100%;
+      min-height: 48px;
+      background: var(--focus);
+      color: #fff;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button[type="submit"]:hover {
+      opacity: 0.92;
+    }
+    .required-note {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin: -0.75rem 0 1.25rem;
+    }
+    footer {
+      max-width: 34rem;
+      margin: 1.5rem auto 0;
+      padding: 0 0.25rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    footer a {
+      color: var(--muted);
+    }
+    /* Honeypot: per CSS versteckt, kein type="hidden" — Bots, die das HTML
+       parsen statt es zu rendern, sehen hier ein normales Textfeld. */
+    .hp-wrap {
+      position: absolute;
+      left: -9999px;
+      top: -9999px;
+      height: 0;
+      width: 0;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Kostenloser Standort-Check</h1>
+    <p class="intro">
+      Sagen Sie uns, wo Ihr Grundstück liegt — unser Sales-Team meldet sich
+      anschließend bei Ihnen.
+    </p>
+
+    <form method="post" action="/submit" novalidate>
+      <p class="required-note">* Pflichtfeld</p>
+
+      <fieldset>
+        <legend>Adresse des Grundstücks</legend>
+
+        <div class="field">
+          <label for="street">Straße und Hausnummer *</label>
+          <input
+            type="text" id="street" name="street" required
+            autocomplete="street-address" autocapitalize="words">
+        </div>
+
+        <div class="field">
+          <label for="postal_code">PLZ (optional)</label>
+          <input
+            type="text" id="postal_code" name="postal_code"
+            inputmode="numeric" pattern="\d{5}" maxlength="5"
+            autocomplete="postal-code">
+        </div>
+
+        <div class="field">
+          <label for="city">Ort *</label>
+          <input
+            type="text" id="city" name="city" required
+            autocomplete="address-level2" autocapitalize="words">
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label for="email">E-Mail-Adresse *</label>
+        <input
+          type="email" id="email" name="email" required
+          autocomplete="email" inputmode="email">
+      </div>
+
+      <div class="field">
+        <label for="phone">Telefon (optional, für schnellere Rückmeldung)</label>
+        <input
+          type="tel" id="phone" name="phone"
+          autocomplete="tel" inputmode="tel">
+      </div>
+
+      <div class="field">
+        <label for="name">Name (optional)</label>
+        <input
+          type="text" id="name" name="name"
+          autocomplete="name" autocapitalize="words">
+      </div>
+
+      <div class="field">
+        <label>Sind Sie Eigentümer des Grundstücks? (optional)</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="is_owner" value="ja"> Ja
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="is_owner" value="nein"> Nein
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="contact_time_preference">Wann erreichen wir Sie am besten? (optional, für schnellere Rückmeldung)</label>
+        <select id="contact_time_preference" name="contact_time_preference">
+          <option value="">Keine Angabe</option>
+          <option value="vormittags">Vormittags</option>
+          <option value="nachmittags">Nachmittags</option>
+          <option value="flexibel">Flexibel</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="heard_about">Wie sind Sie auf uns aufmerksam geworden? (optional)</label>
+        <select id="heard_about" name="heard_about">
+          <option value="">Keine Angabe</option>
+          {% for option in heard_about_options %}
+          <option value="{{ option }}">{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="message">Anmerkungen oder Fragen (optional)</label>
+        <textarea id="message" name="message"></textarea>
+      </div>
+
+      <div class="field">
+        <label class="checkbox-field">
+          <input type="checkbox" id="privacy_accepted" name="privacy_accepted" required>
+          <span>Ich habe die Datenschutzerklärung gelesen und akzeptiere sie. *</span>
+        </label>
+      </div>
+
+      <!-- Honeypot: fuer Menschen unsichtbar per CSS, kein type="hidden" -->
+      <div class="hp-wrap" aria-hidden="true">
+        <label for="website">Bitte leer lassen</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+
+      <!-- Hidden Fields: Attribution + Anti-Spam -->
+      <input type="hidden" name="utm_source" value="{{ utm_source or '' }}">
+      <input type="hidden" name="utm_medium" value="{{ utm_medium or '' }}">
+      <input type="hidden" name="utm_campaign" value="{{ utm_campaign or '' }}">
+      <input type="hidden" name="utm_term" value="{{ utm_term or '' }}">
+      <input type="hidden" name="utm_content" value="{{ utm_content or '' }}">
+      <input type="hidden" name="gclid" value="{{ gclid or '' }}">
+      <input type="hidden" name="fbclid" value="{{ fbclid or '' }}">
+      <input type="hidden" name="referrer" value="{{ referrer or '' }}">
+      <input type="hidden" name="landing_page" value="{{ landing_page }}">
+      <input type="hidden" name="submission_token" value="{{ submission_token }}">
+      <input type="hidden" name="form_rendered_at" value="{{ form_rendered_at }}">
+
+      <button type="submit">Standort-Check anfragen</button>
+    </form>
+  </main>
+
+  {% if kontakt_email or kontakt_telefon %}
+  <footer>
+    Probleme mit dem Formular?
+    {% if kontakt_email %}Schreiben Sie an <a href="mailto:{{ kontakt_email }}">{{ kontakt_email }}</a>{% endif -%}
+    {%- if kontakt_email and kontakt_telefon %} oder rufen Sie an unter {% endif -%}
+    {%- if kontakt_telefon %}<a href="tel:{{ kontakt_telefon }}">{{ kontakt_telefon }}</a>{% endif %}.
+  </footer>
+  {% endif %}
+</body>
+</html>
