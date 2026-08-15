@@ -85,8 +85,11 @@ Der Umsetzungsplan steht in `docs/TODO.md`.
 - `merge_fields`: neuer Wert gewinnt / leerer neuer Wert übernimmt alten / beide leer
 - `ampel`: Tabellentest über alle Regeln aus Konzept §B
 - `normalize_name`: `TOM AHRENS` → `Tom Ahrens`, `müller-lüdenscheidt` →
-  `Müller-Lüdenscheidt`, `van der berg` → `van der Berg`; `McDonald` und `O'Brien`
-  bleiben bei gemischter Schreibweise unverändert
+  `Müller-Lüdenscheidt`; Namen mit Namenspartikel (von, van, de, del, di, da, der,
+  den, zu, zum, la, le, ter) werden nie normalisiert — `van der berg` bleibt
+  `van der berg`, `name_normalized=false` (Groß-/Kleinschreibung von Partikeln am
+  Anfang hängt vom Herkunftskontext ab, das wäre Raten, s. Regel 12); `McDonald`
+  und `O'Brien` bleiben bei gemischter Schreibweise ebenfalls unverändert
 - `derive_channel`: Prioritätsliste aus Konzept §H, je ein Fall pro Stufe
 
 ## Arbeitsweise

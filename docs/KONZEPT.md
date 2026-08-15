@@ -645,26 +645,39 @@ ab — es ist derselbe Submit-Endpunkt wie immer, F3 übernimmt.
   Buchungsbestätigungen. Ohne Vorbefüllung müsste er alles neu tippen — die
   Korrekturmöglichkeit wäre theoretisch.
 
-## H. Kanal-Ableitung beim Speichern [neu]
+## H. Kanal-Ableitung beim Speichern [neu; bei Implementierung präzisiert, 2026-08-15]
 
 Statt die Herkunft erst in der Auswertung zusammenzurechnen, wird beim INSERT eine
 saubere Spalte abgeleitet:
 
 ```
-channel        text   -- google_ads | meta_ads | google_organisch | empfehlung |
-                      -- direkt | sonstiges
-channel_source text   -- woher die Ableitung stammt: utm | gclid | fbclid |
-                      -- referrer | selbstauskunft | keine
+channel        text   -- google_ads | meta_ads | google_organisch | andere_suche |
+                      -- empfehlung | direkt | sonstiges
+channel_source text   -- woher die Ableitung stammt: utm | utm_unsicher | gclid |
+                      -- fbclid | referrer | selbstauskunft | keine
 ```
 
 Prioritätsreihenfolge (erste zutreffende gewinnt):
 
-1. `utm_source` gesetzt → daraus ableiten, `channel_source='utm'`
+1. `utm_source` gesetzt → daraus ableiten, s. u. "utm_source-Zuordnung"
 2. `gclid` vorhanden → `google_ads`, `channel_source='gclid'`
 3. `fbclid` vorhanden → `meta_ads`, `channel_source='fbclid'`
-4. `referrer` deutet auf Suchmaschine/Domain → daraus ableiten, `channel_source='referrer'`
+4. `referrer` deutet auf Suchmaschine → daraus ableiten, `channel_source='referrer'`
+   (Google → `google_organisch`, Bing/DuckDuckGo → `andere_suche`)
 5. `heard_about` gesetzt → daraus ableiten, `channel_source='selbstauskunft'`
 6. sonst → `direkt`, `channel_source='keine'`
+
+**utm_source-Zuordnung, zweistufig:** Erst exakter Abgleich gegen eine kleine Liste
+bekannter Plattform-Werte (`google` → `google_ads`, `facebook`/`meta`/`instagram` →
+`meta_ads`), `channel_source='utm'`. Greift das nicht, ein Substring-Fallback mit
+demselben Mapping, aber `channel_source='utm_unsicher'`. Grund: reines
+Substring-Matching auf `google` würde auch bei `googlemail` oder einem
+Kampagnennamen wie `google-partner-blog` zuschlagen — falsch, aber unauffällig
+falsch. Der Fallback bleibt nützlich (eine unsichere Vermutung ist besser als
+`sonstiges`), aber `channel_source` macht die Unsicherheit im Datensatz sichtbar
+statt sie zu verstecken. Passt gar nichts, auch nicht als Substring →
+`sonstiges`, `channel_source='utm'` (die Herkunft UTM ist ja gesichert, nur die
+Plattform nicht).
 
 Nutzen: Der Auswertungs-Tab gruppiert über eine einzige verlässliche Spalte, und
 `channel_source` macht jederzeit prüfbar, wie sicher die Zuordnung ist. Eine per
@@ -672,25 +685,38 @@ gclid bestimmte Herkunft ist belastbar, eine per Selbstauskunft nicht — beides
 derselben Spalte zu mischen, ohne das kenntlich zu machen, wäre der klassische
 stille Fehler in Marketing-Reports.
 
-## I. Namens-Normalisierung [neu]
+## I. Namens-Normalisierung [neu; Partikel-Regel korrigiert bei Implementierung, 2026-08-15]
 
 Aus `TOM AHRENS` oder `tom ahrens` wird `Tom Ahrens`. Konservativ, mit Rohwert.
 
 **Regel — normalisiert wird NUR, wenn der String komplett groß oder komplett klein
-geschrieben ist.** Gemischte Schreibweisen bleiben unangetastet, weil dort echte
-Namensformen stecken: `McDonald`, `O'Brien`, `di Marco`, `van der Berg`.
+geschrieben ist UND keinen Namenspartikel enthält.** Gemischte Schreibweisen
+bleiben unangetastet, weil dort echte Namensformen stecken: `McDonald`, `O'Brien`,
+`di Marco`, `van der Berg`.
 
-Bei der Umwandlung:
+**Namen mit Namenspartikel werden grundsätzlich nicht normalisiert**, auch nicht
+bei durchgängig Groß- oder Kleinschreibung: `von, van, de, del, di, da, der, den,
+zu, zum, la, le, ter`. Beispiel: `van der berg` bleibt `van der berg`,
+`name_normalized=false`. Grund: Ob ein Partikel am Satzanfang groß- oder
+kleingeschrieben gehört, hängt vom Herkunftsland und Kontext ab (niederländisch
+oft groß, deutsch fast nie) — das wäre Raten, und Raten ist nach CLAUDE.md Regel 12
+ausgeschlossen.
+
+*Korrektur-Notiz:* Die ursprüngliche Fassung dieses Abschnitts enthielt die Regel
+"Namenspartikel bleiben klein, außer am Anfang" und nannte zugleich `van der Berg`
+als Beispiel für eine Umwandlung — ein Widerspruch zur eigenen Ausnahme-Regel, der
+erst beim Schreiben der Pflichttests auffiel. Aufgelöst zugunsten der strengeren,
+konservativeren Variante: bei Partikeln lieber gar nicht normalisieren als raten.
+
+Bei der Umwandlung (nur wenn kein Partikel enthalten ist):
 - Bindestrich-Namen: beide Teile groß (`müller-lüdenscheidt` → `Müller-Lüdenscheidt`)
-- Namenspartikel bleiben klein, außer am Anfang: `von, van, de, del, di, da, der,
-  den, zu, zum, la, le, ter`
 - Apostroph-Namen: Buchstabe danach groß (`o'brien` → `O'Brien`)
 - Umlaute und ß unangetastet
 
 Spalten: `name_raw` (wie getippt, nie verändert), `name` (Anzeigewert),
 `name_normalized boolean`. Im Dashboard steht bei normalisierten Namen ein Hinweis
 mit dem Originalwert. Getestet als Tabellentest über alle genannten Fälle plus
-Negativfälle (gemischte Schreibweise bleibt gleich).
+Negativfälle (gemischte Schreibweise und Partikel-Namen bleiben gleich).
 
 ## J. Spam: wie er sich äußert und was greift [neu]
 
