@@ -52,3 +52,9 @@ def form(request: Request):
         "kontakt_telefon": os.environ.get("KONTAKT_TELEFON") or None,
     }
     return templates.TemplateResponse(request=request, name="form.html", context=context)
+
+
+@app.get("/datenschutz")
+def datenschutz(request: Request):
+    context = {"kontakt_email": os.environ.get("KONTAKT_EMAIL") or None}
+    return templates.TemplateResponse(request=request, name="datenschutz.html", context=context)

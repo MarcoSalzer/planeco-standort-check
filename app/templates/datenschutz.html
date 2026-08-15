@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datenschutzerklärung — Standort-Check</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --text: #1a1a1a;
+      --muted: #5a5a5a;
+      --border: #c9c9c9;
+      --focus: #0a5cd8;
+      --bg: #fafafa;
+      --card: #ffffff;
+      --notice-bg: #fff4e5;
+      --notice-border: #e8a33d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.25rem 1rem 3rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 38rem;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: 0.75rem;
+      padding: 1.5rem 1.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin: 0 0 1rem;
+    }
+    h2 {
+      font-size: 1.05rem;
+      margin: 1.6rem 0 0.5rem;
+    }
+    p {
+      margin: 0 0 0.75rem;
+    }
+    .notice {
+      background: var(--notice-bg);
+      border: 1px solid var(--notice-border);
+      border-radius: 0.5rem;
+      padding: 0.85rem 1rem;
+      margin: 0 0 1.5rem;
+      font-size: 0.92rem;
+    }
+    .notice strong {
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+    a {
+      color: var(--focus);
+    }
+    .back-link {
+      display: inline-block;
+      margin-top: 1.75rem;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Datenschutzerklärung</h1>
+
+    <div class="notice">
+      <strong>Hinweis: Demo-Anwendung</strong>
+      Dies ist eine Demo-Anwendung im Rahmen einer Bewerbung. Sie ist kein
+      produktives Angebot der Planeco Building GmbH und steht in keinem
+      Zusammenhang mit deren tatsächlichem Geschäftsbetrieb. Bei Fragen
+      wenden Sie sich an {{ kontakt_email or "die im Formular angegebene Kontaktadresse" }}.
+    </div>
+
+    <h2>Welche Daten werden erhoben?</h2>
+    <p>
+      Beim Ausfüllen des Standort-Check-Formulars erheben wir die Adresse
+      des Grundstücks (Straße, PLZ, Ort), Ihre E-Mail-Adresse sowie optional
+      Name, Telefonnummer, Eigentümerstatus, bevorzugte Erreichbarkeit,
+      Anmerkungen und wie Sie auf uns aufmerksam wurden. Zusätzlich speichern
+      wir technische Herkunftsangaben aus dem Formularaufruf (z. B.
+      Kampagnen-Parameter, verweisende Seite), sofern vorhanden.
+    </p>
+
+    <h2>Wozu werden die Daten verwendet?</h2>
+    <p>
+      Ausschließlich zur Bearbeitung Ihrer Anfrage: damit unser Sales-Team
+      Sie zum Standort-Check kontaktieren kann.
+    </p>
+
+    <h2>Rechtsgrundlage</h2>
+    <p>
+      Die Verarbeitung erfolgt auf Grundlage Ihrer Einwilligung
+      (Art. 6 Abs. 1 lit. a DSGVO), die Sie mit dem Absenden des Formulars
+      erteilen.
+    </p>
+
+    <h2>Wer bekommt die Daten?</h2>
+    <p>
+      Für den Versand der Bestätigungsmail nutzen wir den Dienstleister
+      Brevo (erhält Ihre E-Mail-Adresse und eine Zusammenfassung Ihrer
+      Anfrage). Zur Prüfung und Anreicherung der angegebenen Adresse
+      (Geokoordinaten, Bundesland) nutzen wir den Geocoding-Dienst Nominatim
+      von OpenStreetMap (erhält die angegebene Adresse). Beide erhalten nur
+      die dafür notwendigen Daten. Eine Weitergabe an sonstige Dritte findet
+      nicht statt.
+    </p>
+
+    <h2>Wie lange werden die Daten gespeichert?</h2>
+    <p>
+      Die Daten werden gespeichert, solange sie zur Bearbeitung Ihrer
+      Anfrage benötigt werden. Da es sich um eine Testanwendung im Rahmen
+      eines Bewerbungsprozesses handelt, werden alle im Testzeitraum
+      erhobenen Daten nach dessen Abschluss gelöscht.
+    </p>
+
+    <h2>Ihre Rechte</h2>
+    <p>
+      Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft
+      widerrufen. Ihnen stehen außerdem ein Recht auf Auskunft über die zu
+      Ihrer Person gespeicherten Daten sowie ein Recht auf deren Löschung
+      zu. Wenden Sie sich dafür an {{ kontakt_email or "die im Formular angegebene Kontaktadresse" }}.
+    </p>
+
+    <h2>Kontakt</h2>
+    <p>
+      Bei Fragen zu dieser Datenschutzerklärung oder zu Ihren Daten:
+      {% if kontakt_email %}
+      <a href="mailto:{{ kontakt_email }}">{{ kontakt_email }}</a>
+      {% else %}
+      die im Formular angegebene Kontaktadresse
+      {% endif %}
+    </p>
+
+    <a class="back-link" href="/">← Zurück zum Formular</a>
+  </main>
+</body>
+</html>
