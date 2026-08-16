@@ -6,3 +6,4 @@ bcrypt>=4.2,<5.0
 uvicorn[standard]>=0.32,<1.0
 email-validator>=2.2,<3.0
 python-multipart>=0.0.12,<0.1
+itsdangerous>=2.2,<3.0
