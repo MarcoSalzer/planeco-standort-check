@@ -300,7 +300,9 @@ async def submit(request: Request):
     if result.case != DedupCase.F1_TECHNISCHE_DOPPLUNG:
         try:
             with get_connection() as conn:
-                send_confirmation_email(conn, result.lead_id, result.final_data, str(request.base_url))
+                send_confirmation_email(
+                    conn, result.lead_id, result.final_data, str(request.base_url), result.case
+                )
         except Exception:
             # Nebenwirkung darf den Submit nie zum Scheitern bringen (CLAUDE.md
             # Regel 2). send_confirmation_email fängt Brevo-/Netzwerkfehler

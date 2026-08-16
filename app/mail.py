@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader
 from psycopg.types.json import Json
 
 from app.config import DRY_RUN_EMAIL, MAX_EMAILS_PER_DAY
+from app.core.dedup import DedupCase
 from app.core.edit_token import generate_edit_token
 from app.submission import NewLeadData
 
@@ -35,11 +36,42 @@ _env = Environment(loader=FileSystemLoader(str(_TEMPLATES_DIR)), autoescape=True
 _CONTACT_TIME_TEXT = {
     "vormittags": "Da Sie vormittags am besten erreichbar sind, versuchen wir es entsprechend.",
     "nachmittags": "Da Sie nachmittags am besten erreichbar sind, versuchen wir es entsprechend.",
+    "abends": "Da Sie abends am besten erreichbar sind, versuchen wir es entsprechend.",
     "flexibel": "Sie haben angegeben, flexibel erreichbar zu sein — wir melden uns, sobald es passt.",
 }
 
+_CONTACT_TIME_DISPLAY = {
+    "vormittags": "Vormittags",
+    "nachmittags": "Nachmittags",
+    "abends": "Abends",
+    "flexibel": "Flexibel",
+}
 
-def send_confirmation_email(conn: psycopg.Connection, lead_id: str, data: NewLeadData, base_url: str) -> None:
+# Unterschiedliche Einleitung je nach Anlass (mit Marco abgestimmt, 2026-08-16).
+# F1 landet nie hier (kein neuer Mailversand bei Token-Replay). F4 bekommt
+# bewusst den Standardtext: aus Empfängersicht ist es eine normale neue
+# Anfrage, auch wenn intern ein bekannter Kontakt erkannt wurde.
+_INTRO_TEXT_DEFAULT = (
+    "vielen Dank für Ihre Anfrage beim Standort-Check. Hier noch einmal Ihre "
+    "Angaben zur Bestätigung:"
+)
+_INTRO_TEXT_BY_CASE = {
+    DedupCase.F3_ERSETZT: (
+        "vielen Dank für die Aktualisierung Ihrer Angaben zum Standort-Check. "
+        "Wir bestätigen den Erhalt der folgenden Informationen:"
+    ),
+    DedupCase.F2_DUPLIKAT: (
+        "vielen Dank für Ihre erneute Anfrage beim Standort-Check. Ihre Angaben "
+        "entsprechen genau einer bereits bei uns vorliegenden Anfrage — es hat "
+        "sich nichts geändert. Ihr Standort-Check läuft ganz normal weiter, Sie "
+        "müssen nichts weiter tun:"
+    ),
+}
+
+
+def send_confirmation_email(
+    conn: psycopg.Connection, lead_id: str, data: NewLeadData, base_url: str, case: DedupCase
+) -> None:
     if data.is_spam:
         # Kein Versandversuch, deshalb kein email_attempts-Zähler - reines
         # Statusfeld, das erklärt, warum nie gesendet wurde (Konzept §E).
@@ -51,7 +83,7 @@ def send_confirmation_email(conn: psycopg.Connection, lead_id: str, data: NewLea
         _insert_event(conn, lead_id, "mail_fehlgeschlagen", {"grund": "tageslimit_erreicht", "max_emails_per_day": MAX_EMAILS_PER_DAY})
         return  # email_status bleibt 'offen', Retry holt es später nach
 
-    subject, html = _render_email(data, lead_id, base_url)
+    subject, html = _render_email(data, lead_id, base_url, case)
 
     if DRY_RUN_EMAIL:
         dry_run_logger.info(
@@ -92,11 +124,13 @@ def send_confirmation_email(conn: psycopg.Connection, lead_id: str, data: NewLea
     _insert_event(conn, lead_id, "mail_gesendet", {"empfaenger": data.email})
 
 
-def _render_email(data: NewLeadData, lead_id: str, base_url: str) -> tuple[str, str]:
+def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCase) -> tuple[str, str]:
     edit_token = generate_edit_token(lead_id, os.environ["EDIT_TOKEN_SECRET"])
     edit_url = f"{base_url.rstrip('/')}/?k={edit_token}"
 
     anrede = f"Hallo {data.name}," if data.name else "Hallo,"
+    intro_text = _INTRO_TEXT_BY_CASE.get(case, _INTRO_TEXT_DEFAULT)
+
     erwartung_text = "Unser Team meldet sich in der Regel am nächsten Werktag-Vormittag bei Ihnen."
     if data.contact_time_preference in _CONTACT_TIME_TEXT:
         erwartung_text += " " + _CONTACT_TIME_TEXT[data.contact_time_preference]
@@ -109,6 +143,7 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str) -> tuple[str, 
     address = ", ".join(address_parts)
 
     owner_text = {True: "Ja", False: "Nein"}.get(data.is_owner)
+    contact_time_text = _CONTACT_TIME_DISPLAY.get(data.contact_time_preference)
 
     summary_rows = [row for row in [
         ("Adresse", address),
@@ -116,7 +151,7 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str) -> tuple[str, 
         ("E-Mail", data.email),
         ("Telefon", data.phone_raw),
         ("Eigentümer", owner_text),
-        ("Erreichbarkeit", data.contact_time_preference),
+        ("Erreichbarkeit", contact_time_text),
         ("Wie gefunden", data.heard_about),
         ("Anmerkung", data.message),
     ] if row[1]]
@@ -124,6 +159,7 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str) -> tuple[str, 
     template = _env.get_template("email_confirmation.html")
     html = template.render(
         anrede=anrede,
+        intro_text=intro_text,
         summary_rows=summary_rows,
         edit_url=edit_url,
         erwartung_text=erwartung_text,
