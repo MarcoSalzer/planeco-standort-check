@@ -3,39 +3,49 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (2) — für den Einstieg in eine neue Session
+## Stand 16.08. abends (3) — für den Einstieg in eine neue Session
 
 Phase 1 und Phase 2 sind fertig und committet (15 Commits, siehe `git log`).
-Phase 3: Login UND Lead-Liste sind jetzt fertig (Tabs, Spalten, Ampel,
-Volltextsuche, Badges, Leerzustand - s. Checkliste unten). Noch nicht
-getestet vom Nutzer im Browser, nur per curl gegen echte Supabase-Daten
-verifiziert. **Nächster Schritt: Detailansicht** (message prominent,
-superseded-Kette, Event-Historie, Google-Maps-Link), danach Aktionen,
-CSV-Export, Auswertungs-Tab.
+Phase 3: Login, Lead-Liste, Detailansicht UND Aktionen sind jetzt fertig
+(s. Checkliste unten). **Nächster Schritt: CSV-Export**, danach
+Auswertungs-Tab — das schließt Phase 3 ab. Noch nichts davon vom Nutzer im
+Browser gegengetestet, nur live per curl/httpx gegen echte Supabase-Daten
+verifiziert (inkl. echter F3-Korrekturketten und Spam-Fällen aus Marcos
+eigenen Tests) — das steht vor Phase 4 noch aus.
 
-**Neu gebaut:** `app/core/ampel.py` (Ampel-Funktion nach Konzept §B, aus
-Phase 4 vorgezogen - wird für die Ampel-Spalte in der Liste gebraucht,
-Geocoding selbst bleibt Phase 4), `app/core/display.py`
-(`format_berlin_datetime`), `CHANNEL_LABELS` in `app/core/channel.py`,
-`SPAM_REASON_LABELS` in `app/core/spam.py`. `traffic_light`-Spalte wird
-noch NICHT beschrieben - die Liste berechnet die Ampel beim Lesen live aus
-`app/core/ampel.py`; das Cachen bei jedem Schreibvorgang (Konzept §F) ist
-Teil von Phase 4, wenn der Geocoding-Schreibpfad ohnehin angefasst wird.
+**Neu gebaut seit Login:**
+- `app/core/ampel.py` — Ampel-Funktion nach Konzept §B, aus Phase 4
+  vorgezogen (reine Funktion, kein Geocoding nötig). `traffic_light`-Spalte
+  bleibt unbeschrieben, die Liste/Detailansicht berechnen live; das Cachen
+  bei jedem Schreibvorgang ist Teil von Phase 4.
+- `app/core/display.py` — `format_berlin_datetime`, `STATUS_VALUE_LABELS`/
+  `status_label()` (alle status-artigen Spalten), `EVENT_TYPE_LABELS`,
+  `CONTACT_TIME_LABELS` (von `app/mail.py` hierher verschoben).
+  `CHANNEL_LABELS` in `app/core/channel.py`, `SPAM_REASON_LABELS` in
+  `app/core/spam.py`.
+- `app/db.py::insert_event()` — war identisch dupliziert in
+  `submission.py` und `mail.py`, mit `admin.py` als drittem Aufrufer
+  konsolidiert.
+- `GET /admin/leads/{lead_id}` — Detailansicht: alle Felder (auch leere),
+  message prominent, superseded-Kette rückwärts aufgelöst + Banner bei
+  duplicate_of/superseded_by, Event-Historie über die GANZE Kette.
+- `POST /admin/leads/{lead_id}/bearbeitung` + `.../mail-erneut-senden` —
+  Aktionen: Status/assigned_to/disqualify_reason, Mail-Resend. Details s.
+  Phase-3-Checkliste unten.
 
-**Beim Bauen gefunden (gehört in `docs/FUNDE.md` beim Schreiben der
-NOTES.md, Phase 6):** `persist_submission()` setzt in keinem der vier
-Dedup-Fälle `status='spam'`, wenn `is_spam=true` - nur `is_spam`/
-`spam_reason` werden gesetzt, der Status bleibt `neu`/`duplikat`/geerbt.
-Dadurch tauchten spam-markierte Leads bislang in der normalen Neu-Tab auf,
-obwohl Konzept §6 sie im Standardfilter versteckt sehen will. Die
-Lead-Liste filtert deshalb defensiv zusätzlich auf `NOT is_spam` (s.
-`_fetch_leads` in `app/admin.py`) - der eigentliche INSERT in
-`app/submission.py` setzt `status` weiterhin nicht auf `'spam'`. Nicht
-selbst gefixt, weil unklar ist, ob eine spam-markierte F3-Korrektur den
-geerbten Status (R17: contacted/assigned_to bleiben erhalten) überschreiben
-soll oder nicht - vor Abgabe bewusst entscheiden (einbauen in
-`persist_submission()`, oder als bekannte Lücke in NOTES.md dokumentieren,
-analog zur MX-Prüfung oben).
+**Beim Bauen gefunden und gefixt (gehört in `docs/FUNDE.md` beim Schreiben
+der NOTES.md, Phase 6):**
+1. `persist_submission()` setzte bei `is_spam=true` nie `status='spam'` -
+   gefixt (Marcos Regel: Dedup-Folgen entfallen bei Spam komplett, kein
+   Vorgänger wird berührt). Commit `7c7df2e`.
+2. Beim Bauen der Aktionen fiel eine Folgeinkonsistenz aus der Zeit VOR
+   Fix 1 auf: Alt-Leads mit `is_spam=true` bei `status='neu'` existieren in
+   der DB. Der erste Entwurf der "Status ändern"-Aktion prüfte
+   is_spam-Sync nur, wenn sich `status` gegenüber der DB änderte - bei so
+   einem Alt-Lead ist die Freigabe (`status='neu'` erneut abschicken) aber
+   keine Änderung, `is_spam` blieb fälschlich `true` stehen. Live-Test
+   deckte es auf, Fix: is_spam/spam_reason/contacted_at richten sich jetzt
+   nach dem eingereichten Status, unabhängig davon ob er sich geändert hat.
 
 ### Module (app/)
 - `main.py` — Routen `/health`, `/` (Formular, inkl. Vorbefüllung über `?k=`),
@@ -148,7 +158,7 @@ Punkte sind alle noch offen.
 - [x] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext, Grund als eigene Spalte/unter Name auf schmal), Kanal (channel + heard_about getrennt) — Beschriftungen durchgängig deutsch, Volltextsuche über Name/E-Mail/Telefon/Ort, Leerzustand mit Meldung statt leerer Tabelle. Noch NICHT vom Nutzer im Browser getestet (nur curl gegen echte Daten).
 - [x] Badges: erneut angefragt / vom Kunden aktualisiert / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig
 - [x] Detailansicht: alle Felder (auch leere), message prominent, superseded-Kette rückwärts aufgelöst + Banner bei duplicate_of/superseded_by, Event-Historie über die GANZE Kette (nicht nur den aktuellen Datensatz), Google-Maps-Link. Route `GET /admin/leads/{lead_id}`, verlinkt aus der Liste. Live gegen echte F3-Korrekturkette + Spam-Lead getestet, noch nicht im Browser vom Nutzer.
-- [ ] Aktionen: Status, assigned_to, disqualify_reason, "Mail erneut senden" einzeln buildbar (send_confirmation_email existiert bereits) — "Geocoding erneut"/globaler Retry-Button erst sinnvoll, wenn Phase 4 überhaupt etwas zum Retryen hat
+- [x] Aktionen: Status ändern (nur die 5 manuell sinnvollen Werte, s. `_MANUALLY_SETTABLE_STATUSES`), assigned_to, disqualify_reason als ein Formular (`POST /admin/leads/{id}/bearbeitung`), "Mail erneut senden" einzeln (`POST .../mail-erneut-senden`, ruft `send_confirmation_email` direkt). Status-Wechsel synct is_spam mit (Konzept §J: Fehlalarm manuell freigeben UND übersehenen Spam nachträglich markieren), setzt contacted_at automatisch beim ersten Wechsel auf 'kontaktiert', schreibt status_geaendert/zugewiesen-Events. Live getestet inkl. Selbstheilung eines inkonsistenten Alt-Leads (is_spam=true bei status='neu' aus der Zeit vor dem Spam-Fix) — **"Geocoding erneut"/globaler Retry-Button weiterhin nicht gebaut**, dafür gibt es vor Phase 4 nichts zum Retryen
 - [ ] CSV: Semikolon, UTF-8 BOM, Europe/Berlin, Qualitätsspalten
 - [ ] Tab Auswertung: GROUP BY utm_source/campaign/heard_about/Bundesland, Quoten + Qualitätsanteile, n<10 ausgegraut, Kreuztabelle Kanal x Bundesland
 

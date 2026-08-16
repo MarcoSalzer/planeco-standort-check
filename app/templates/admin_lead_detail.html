@@ -102,8 +102,44 @@
       font-size: 0.9rem;
     }
     .banner a { color: var(--focus); font-weight: 600; }
+    .banner.feedback-ok { background: #e6f4ea; }
+    .banner.feedback-error { background: #fdecea; }
 
     h2.section-title { font-size: 1rem; margin: 0 0 0.75rem; }
+
+    form.aktionen-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 26rem; }
+    form.resend-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .form-row { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-row label { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+    .form-row input, .form-row select {
+      min-height: 42px;
+      padding: 0.5rem 0.6rem;
+      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 0.4rem;
+      font-family: inherit;
+    }
+    .form-row input:focus, .form-row select:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 1px;
+    }
+    .aktionen-form .hint, .resend-form .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0;
+    }
+    .aktionen-form button, .resend-form button {
+      align-self: flex-start;
+      min-height: 42px;
+      padding: 0 1rem;
+      background: var(--focus);
+      color: #fff;
+      border: none;
+      border-radius: 0.4rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .aktionen-form button:hover, .resend-form button:hover { opacity: 0.9; }
 
     .field-groups { display: flex; flex-direction: column; gap: 1.25rem; }
     .field-group h3 {
@@ -183,9 +219,45 @@
     </div>
     {% endif %}
 
+    {% if aktion_feedback == "gespeichert" %}
+    <div class="banner feedback-ok">Änderungen gespeichert.</div>
+    {% elif aktion_feedback == "mail_gesendet" %}
+    <div class="banner feedback-ok">Mail-Versand ausgelöst — aktueller Status unten bei "Bestätigungsmail".</div>
+    {% elif aktion_feedback == "mail_fehler" %}
+    <div class="banner feedback-error">Mail-Versand fehlgeschlagen — Fehlerdetails im Server-Log.</div>
+    {% endif %}
+
     <div class="card message-card">
       <h3>Anmerkungen (Gesprächseinstieg)</h3>
       <p>{{ message or "– keine Anmerkung angegeben" }}</p>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Aktionen</h2>
+      <form method="post" action="/admin/leads/{{ lead_id }}/bearbeitung" class="aktionen-form">
+        <div class="form-row">
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            {% for value, label in manually_settable_statuses %}
+            <option value="{{ value }}" {{ "selected" if value == lead.status else "" }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="assigned_to">Zugewiesen an</label>
+          <input type="text" id="assigned_to" name="assigned_to" value="{{ lead.assigned_to or '' }}">
+        </div>
+        <div class="form-row">
+          <label for="disqualify_reason">Disqualifikationsgrund</label>
+          <input type="text" id="disqualify_reason" name="disqualify_reason" value="{{ lead.disqualify_reason or '' }}">
+        </div>
+        <p class="hint">Kontaktiert am: {{ contacted_at_display }} (wird automatisch beim ersten Wechsel auf "Kontaktiert" gesetzt)</p>
+        <button type="submit">Speichern</button>
+      </form>
+      <form method="post" action="/admin/leads/{{ lead_id }}/mail-erneut-senden" class="resend-form">
+        <button type="submit">Bestätigungsmail erneut senden</button>
+        <p class="hint">Aktueller Mail-Status: {{ email_status_display }}. Bei Spam-Verdacht wird nie gesendet.</p>
+      </form>
     </div>
 
     {% if ancestors %}

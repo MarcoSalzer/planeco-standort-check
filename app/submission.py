@@ -14,11 +14,11 @@ from datetime import datetime
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import Json
 
 from app.core.dedup import DedupCase, ExistingLead, dedup_decision
 from app.core.merge import merge_fields
 from app.core.normalize import normalize_email, normalize_name, normalize_phone
+from app.db import insert_event as _insert_event
 
 
 @dataclass(frozen=True)
@@ -334,11 +334,4 @@ def _supersede(conn: psycopg.Connection, *, old_id: str, new_id: str) -> None:
         "UPDATE leads SET status = 'ersetzt', superseded_by = %(new_id)s, updated_at = now() "
         "WHERE id = %(old_id)s",
         {"new_id": new_id, "old_id": old_id},
-    )
-
-
-def _insert_event(conn: psycopg.Connection, lead_id: str, event_type: str, payload: dict) -> None:
-    conn.execute(
-        "INSERT INTO lead_events (lead_id, event_type, payload) VALUES (%(lead_id)s, %(event_type)s, %(payload)s)",
-        {"lead_id": lead_id, "event_type": event_type, "payload": Json(payload)},
     )

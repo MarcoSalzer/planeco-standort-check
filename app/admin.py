@@ -1,12 +1,14 @@
-"""Admin-Dashboard: Login + Lead-Liste (Konzept §6). Detailansicht/Aktionen/
-CSV/Auswertung folgen noch.
+"""Admin-Dashboard: Login + Lead-Liste + Detailansicht + Aktionen (Konzept
+§6). CSV-Export/Auswertungs-Tab folgen noch.
 
 Session per signiertem Cookie (itsdangerous, SESSION_SECRET - eigenes
 Secret, getrennt von EDIT_TOKEN_SECRET, s. app/core/admin_auth.py).
 """
+import dataclasses
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import psycopg
@@ -22,6 +24,7 @@ from app.core.admin_auth import (
 )
 from app.core.ampel import ampel as compute_ampel
 from app.core.channel import CHANNEL_LABELS
+from app.core.dedup import DedupCase
 from app.core.display import (
     CONTACT_TIME_LABELS,
     EVENT_TYPE_LABELS,
@@ -29,7 +32,9 @@ from app.core.display import (
     status_label,
 )
 from app.core.spam import SPAM_REASON_LABELS
-from app.db import get_connection
+from app.db import get_connection, insert_event
+from app.mail import send_confirmation_email
+from app.submission import NewLeadData
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
@@ -57,6 +62,17 @@ _DEFAULT_TAB = "neu"
 # duplicate/superseded/spam/ausland: nicht Teil der normalen Sales-Warte-
 # schlange (Konzept §4, §A), default ausgeblendet, Toggle "alles anzeigen".
 _HIDDEN_STATUSES = ["duplikat", "ersetzt", "spam", "ausland"]
+
+# Per Hand im Dashboard setzbare status-Werte (Aktionen, Konzept §6).
+# 'duplikat'/'ersetzt'/'ausland' bewusst NICHT dabei: die entstehen nur
+# zusammen mit einer echten Relation (duplicate_of/superseded_by bzw.
+# Geocoding-Ergebnis) - ein Dropdown könnte diese Relation nicht mitsetzen
+# und würde einen Datensatz erzeugen, der wie 'ersetzt' aussieht, ohne
+# einen Nachfolger zu haben. 'spam' ist bewusst dabei: Konzept §J verlangt
+# ausdrücklich, dass ein Fehlalarm "manuell freigegeben werden kann" - und
+# symmetrisch dazu muss auch ein übersehener Spam-Fall manuell markierbar
+# sein.
+_MANUALLY_SETTABLE_STATUSES = ["neu", "kontaktiert", "qualifiziert", "disqualifiziert", "spam"]
 
 
 def _current_admin(request: Request) -> str | None:
@@ -311,6 +327,7 @@ def lead_detail(request: Request, lead_id: str):
 
     context = _build_detail_context(row, ancestors, events, duplicate_of_row, superseded_by_row)
     context["username"] = admin_username
+    context["aktion_feedback"] = request.query_params.get("aktion")
     return templates.TemplateResponse(request=request, name="admin_lead_detail.html", context=context)
 
 
@@ -388,11 +405,14 @@ def _dt(value) -> str:
 
 def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
     """Alle Lead-Spalten außer message/duplicate_of/superseded_by/
-    traffic_light(_reason) - message steht prominent oben, duplicate_of/
-    superseded_by als Banner, traffic_light wird live über app.core.ampel
-    berechnet statt der (vor Phase 4 ohnehin leeren) Cache-Spalte gezeigt.
-    "Alle Felder, auch leere" (Marco, 2026-08-16): jede Zeile erscheint
-    immer, mit "–" statt Auslassung wenn leer."""
+    traffic_light(_reason)/status/assigned_to/disqualify_reason/
+    contacted_at - message steht prominent oben, duplicate_of/superseded_by
+    als Banner, traffic_light wird live über app.core.ampel berechnet statt
+    der (vor Phase 4 ohnehin leeren) Cache-Spalte gezeigt, und die
+    Bearbeitungsfelder stehen als eigenes editierbares Formular (Aktionen)
+    statt in dieser reinen Anzeige-Liste. "Alle Felder, auch leere" (Marco,
+    2026-08-16): jede Zeile erscheint immer, mit "–" statt Auslassung wenn
+    leer."""
     name_value = row["name"] or "–"
     if row["name_normalized"] and row["name_raw"]:
         name_value += f" (wie eingegeben: {row['name_raw']})"
@@ -433,12 +453,6 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
             ("Eigentümer des Grundstücks?", _ja_nein(row["is_owner"])),
             ("Erreichbarkeit", CONTACT_TIME_LABELS.get(row["contact_time_preference"], "–")),
             ("Wie gefunden", _text(row["heard_about"])),
-        ]),
-        ("Bearbeitung", [
-            ("Status", status_label(row["status"])),
-            ("Zugewiesen an", _text(row["assigned_to"])),
-            ("Kontaktiert am", _dt(row["contacted_at"])),
-            ("Disqualifikationsgrund", _text(row["disqualify_reason"])),
         ]),
         ("Herkunft", [
             ("Kanal", CHANNEL_LABELS.get(row["channel"], _text(row["channel"]))),
@@ -534,6 +548,8 @@ def _build_detail_context(
         "lead_id": row["id"],
         "created_at_display": format_berlin_datetime(row["created_at"]),
         "status_display": status_label(row["status"]),
+        "contacted_at_display": _dt(row["contacted_at"]),
+        "email_status_display": status_label(row["email_status"]),
         "ampel_farbe": result.farbe,
         "ampel_grund": result.grund,
         "message": row["message"],
@@ -542,4 +558,121 @@ def _build_detail_context(
         "events": events_display,
         "duplicate_of_row": duplicate_of_row,
         "superseded_by_row": superseded_by_row,
+        "manually_settable_statuses": [(value, status_label(value)) for value in _MANUALLY_SETTABLE_STATUSES],
     }
+
+
+# --- Aktionen (Konzept §6) -------------------------------------------------
+# "Geocoding erneut" / globaler Retry-Button bewusst nicht gebaut: Phase 4
+# (Geocoding) existiert noch nicht, es gäbe nichts, das ein Retry-Button
+# tatsächlich retryen könnte (s. docs/TODO.md, offene Punkte).
+
+
+@router.post("/leads/{lead_id}/bearbeitung")
+def update_lead_bearbeitung(
+    request: Request,
+    lead_id: str,
+    status: str = Form(...),
+    assigned_to: str = Form(""),
+    disqualify_reason: str = Form(""),
+):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    if status not in _MANUALLY_SETTABLE_STATUSES:
+        raise HTTPException(status_code=400, detail="Ungültiger Status.")
+
+    assigned_to = assigned_to.strip() or None
+    disqualify_reason = disqualify_reason.strip() or None
+
+    with get_connection() as conn:
+        row = _fetch_lead(conn, lead_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+
+        updates: dict = {}
+
+        if status != row["status"]:
+            updates["status"] = status
+            insert_event(conn, lead_id, "status_geaendert", {"von": row["status"], "nach": status})
+
+        # is_spam/spam_reason/contacted_at richten sich nach dem EINGEREICHTEN
+        # status, nicht danach, ob sich status gegenüber der DB geändert hat -
+        # sonst bliebe ein bereits inkonsistenter Altdatensatz (is_spam=true
+        # bei status='neu', aus der Zeit vor dem Spam/Dedup-Fix, s.
+        # docs/TODO.md "Beim Bauen gefunden") inkonsistent, wenn genau dieser
+        # Status erneut abgeschickt wird ("neu" -> "neu" wäre keine Änderung,
+        # is_spam bliebe fälschlich true). Konzept §J: ein Fehlalarm der
+        # Spam-Erkennung muss "manuell freigegeben werden" können -
+        # send_confirmation_email() prüft is_spam (nicht status), ohne diese
+        # Zeile bliebe die Mail auch nach Freigabe blockiert. Symmetrisch:
+        # wird manuell auf 'spam' gesetzt, muss is_spam mitziehen, sonst
+        # ignorieren Ampel/Dashboard-Filter/Mail-Versand die manuelle
+        # Einstufung.
+        if status == "spam" and not row["is_spam"]:
+            updates["is_spam"] = True
+            updates["spam_reason"] = "manuell_markiert"
+        elif status != "spam" and row["is_spam"]:
+            updates["is_spam"] = False
+
+        if status == "kontaktiert" and row["contacted_at"] is None:
+            updates["contacted_at"] = datetime.now(timezone.utc)
+
+        if assigned_to != row["assigned_to"]:
+            updates["assigned_to"] = assigned_to
+            insert_event(conn, lead_id, "zugewiesen", {"an": assigned_to})
+
+        if disqualify_reason != row["disqualify_reason"]:
+            updates["disqualify_reason"] = disqualify_reason
+
+        if updates:
+            _update_lead(conn, lead_id, updates)
+
+    return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion=gespeichert", status_code=303)
+
+
+@router.post("/leads/{lead_id}/mail-erneut-senden")
+def resend_lead_mail(request: Request, lead_id: str):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    with get_connection() as conn:
+        row = _fetch_lead(conn, lead_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+        data = _row_to_new_lead_data(row)
+
+    aktion = "mail_gesendet"
+    try:
+        with get_connection() as conn:
+            send_confirmation_email(conn, lead_id, data, str(request.base_url), DedupCase.NEU)
+    except Exception:
+        # Admin-Aktion, kein Submit-Pfad - CLAUDE.md Regel 2 gilt hier nicht
+        # wörtlich, aber ein rohes 500 für einen Klick auf "erneut senden"
+        # wäre trotzdem schlechtes Verhalten. send_confirmation_email fängt
+        # Brevo-/Netzwerkfehler schon selbst ab; dieser Fang ist nur das
+        # Netz für alles andere (z.B. DB-Fehler beim Status-Update).
+        logger.exception("Manueller Mail-Resend fehlgeschlagen für Lead %s", lead_id)
+        aktion = "mail_fehler"
+
+    return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion={aktion}", status_code=303)
+
+
+def _row_to_new_lead_data(row: dict) -> NewLeadData:
+    field_names = {f.name for f in dataclasses.fields(NewLeadData)}
+    return NewLeadData(**{name: row[name] for name in field_names})
+
+
+def _update_lead(conn: psycopg.Connection, lead_id: str, updates: dict) -> None:
+    # Spaltennamen in `updates` kommen ausschließlich aus fest im Code
+    # stehenden Strings oben (status/is_spam/spam_reason/contacted_at/
+    # assigned_to/disqualify_reason), nie direkt aus Request-Daten - die
+    # f-String-Interpolation der Spaltennamen ist damit unproblematisch,
+    # alle WERTE laufen über %()s-Parameter.
+    set_clauses = ", ".join(f"{column} = %({column})s" for column in updates)
+    conn.execute(
+        f"UPDATE leads SET {set_clauses}, updated_at = now() WHERE id = %(lead_id)s",
+        {**updates, "lead_id": lead_id},
+    )

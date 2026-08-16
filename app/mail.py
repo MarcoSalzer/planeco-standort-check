@@ -17,12 +17,12 @@ from datetime import datetime, timezone
 import httpx
 import psycopg
 from jinja2 import Environment, FileSystemLoader
-from psycopg.types.json import Json
 
 from app.config import DRY_RUN_EMAIL, MAX_EMAILS_PER_DAY
 from app.core.dedup import DedupCase
 from app.core.display import CONTACT_TIME_LABELS
 from app.core.edit_token import generate_edit_token
+from app.db import insert_event as _insert_event
 from app.submission import NewLeadData
 
 logger = logging.getLogger(__name__)
@@ -199,11 +199,4 @@ def _update_email_status(
         WHERE id = %(lead_id)s
         """,
         {"status": status, "sent_at": sent_at, "error": error, "lead_id": lead_id},
-    )
-
-
-def _insert_event(conn: psycopg.Connection, lead_id: str, event_type: str, payload: dict) -> None:
-    conn.execute(
-        "INSERT INTO lead_events (lead_id, event_type, payload) VALUES (%(lead_id)s, %(event_type)s, %(payload)s)",
-        {"lead_id": lead_id, "event_type": event_type, "payload": Json(payload)},
     )
