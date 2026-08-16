@@ -3,18 +3,20 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (5) — für den Einstieg in eine neue Session
+## Stand 16.08. abends (6) — für den Einstieg in eine neue Session
 
-Phase 1 und Phase 2 sind fertig und committet (15 Commits, siehe `git log`).
-Phase 3: Login, Lead-Liste (inkl. sichtbarer Dedup-Beziehungen + Export-
-Button), Detailansicht, Aktionen und CSV-Export sind fertig. Marco hat das
-CSV in Excel geöffnet, passt. Zusätzlich: systematischer Testlauf über 40
-Randfälle (`scripts/testlauf.py` → `docs/TESTLAUF.md`), 40/40 wie erwartet,
-ein echter Fund (heard_about ohne Server-Validierung, s. dort). **Nächster
-Schritt: Auswertungs-Tab nach Konzept §7** — schließt Phase 3 ab, danach
-Phase 4 (Geocoding). Login/Liste/Detail/Aktionen/CSV sind bislang NICHT im
-Browser gegengetestet, nur live per curl/httpx/testlauf.py gegen echte
-Supabase-Daten.
+Phase 1, Phase 2 UND Phase 3 sind vollständig fertig und committet (siehe
+`git log`): Login, Lead-Liste (inkl. sichtbarer Dedup-Beziehungen +
+Export-Button), Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab.
+Marco hat das CSV in Excel geöffnet, passt. Systematischer Testlauf über
+40 Randfälle (`scripts/testlauf.py` → `docs/TESTLAUF.md`), 40/40 wie
+erwartet, ein echter Fund (heard_about ohne Server-Validierung, s. dort).
+**Nächster Schritt: Phase 4 (Geocoding)** — Nominatim-Integration,
+Ampel-Funktion existiert bereits (`app/core/ampel.py`, aus Phase 4
+vorgezogen), Auslandspfad, Bundesland→Landesbauordnung-Mapping,
+GitHub-Actions-Cron, `/admin/retry`. Login/Liste/Detail/Aktionen/CSV/
+Auswertung sind bislang NICHT im Browser gegengetestet, nur live per
+curl/httpx/testlauf.py gegen echte Supabase-Daten.
 
 **Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,
 `MAX_EMAILS_PER_DAY=50`) steht nach dem intensiven Testen heute bei über 80
@@ -162,7 +164,7 @@ Punkte sind alle noch offen.
 - [x] Spam-Erkennung: Honeypot, Zeitschwelle, Link-Zaehler im message-Feld, Zeichensatz-Heuristik
 - [x] pytest: normalize_phone (5 Beispielformate), content_hash-Stabilität, dedup_decision F1-F4, merge_fields (neu/leer/beide leer)
 
-## Phase 3 — Dashboard (So, ~3-4h) — Login + Lead-Liste fertig, Rest offen
+## Phase 3 — Dashboard (So, ~3-4h) ✅
 - [x] Login (Env-Credentials, signierter Cookie, constant-time) — vom Nutzer live getestet, funktioniert
 - [x] Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam(+ausland, s.u.) default aus, Toggle "alles anzeigen"
 - [x] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext, Grund als eigene Spalte/unter Name auf schmal), Kanal (channel + heard_about getrennt) — Beschriftungen durchgängig deutsch, Volltextsuche über Name/E-Mail/Telefon/Ort, Leerzustand mit Meldung statt leerer Tabelle. Noch NICHT vom Nutzer im Browser getestet (nur curl gegen echte Daten).
@@ -170,7 +172,7 @@ Punkte sind alle noch offen.
 - [x] Detailansicht: alle Felder (auch leere), message prominent, superseded-Kette rückwärts aufgelöst + Banner bei duplicate_of/superseded_by, Event-Historie über die GANZE Kette (nicht nur den aktuellen Datensatz), Google-Maps-Link. Route `GET /admin/leads/{lead_id}`, verlinkt aus der Liste. Live gegen echte F3-Korrekturkette + Spam-Lead getestet, noch nicht im Browser vom Nutzer.
 - [x] Aktionen: Status ändern (nur die 5 manuell sinnvollen Werte, s. `_MANUALLY_SETTABLE_STATUSES`), assigned_to, disqualify_reason als ein Formular (`POST /admin/leads/{id}/bearbeitung`), "Mail erneut senden" einzeln (`POST .../mail-erneut-senden`, ruft `send_confirmation_email` direkt). Status-Wechsel synct is_spam mit (Konzept §J: Fehlalarm manuell freigeben UND übersehenen Spam nachträglich markieren), setzt contacted_at automatisch beim ersten Wechsel auf 'kontaktiert', schreibt status_geaendert/zugewiesen-Events. Live getestet inkl. Selbstheilung eines inkonsistenten Alt-Leads (is_spam=true bei status='neu' aus der Zeit vor dem Spam-Fix) — **"Geocoding erneut"/globaler Retry-Button weiterhin nicht gebaut**, dafür gibt es vor Phase 4 nichts zum Retryen
 - [x] CSV: `GET /admin/export.csv`, Semikolon, UTF-8 BOM (`utf-8-sig`), Europe/Berlin, deutsche Header, 27 Spalten (alle Eingabefelder + Kanal/Kanal-Quelle/Status/Ampel/Ampel-Grund + Qualitätsflags). Läuft über dieselben `_fetch_leads`/`_decorate_row` wie die Liste, damit Filter/Suche/Sortierung nie auseinanderlaufen können. Leere Felder als "" statt "–" (pivot-tauglich). Live getestet: BOM vorhanden, Filter/Suche respektiert (tab=neu → nur 2 Zeilen, Suche "Stuttgart" → nur Stuttgart-Zeilen), Sonderzeichen-Escaping mit echtem Semikolon+Zeilenumbruch+Anführungszeichen in einer Anmerkung geprüft (RFC4180 über csv-Modul, rundet exakt). **Noch nicht in Excel geöffnet** - das macht Marco selbst, deshalb hier angehalten.
-- [ ] Tab Auswertung: GROUP BY utm_source/campaign/heard_about/Bundesland, Quoten + Qualitätsanteile, n<10 ausgegraut, Kreuztabelle Kanal x Bundesland
+- [x] Tab Auswertung (`GET /admin/auswertung`): GROUP BY **channel** (nicht utm_source, s. §H)/campaign/heard_about/Bundesland als Links statt Dropdown (kein JS), alle 8 Spalten aus §7, "Basis: n" pro Zeile, Quoten unter n=10 grau/kursiv, Kreuztabelle Kanal×Bundesland. Live gegen echte Daten verifiziert (Zahlen von Hand gegengerechnet, exakte Übereinstimmung). Fund beim Bauen behoben: `utm_campaign` wird beim Submit nicht leer→NULL normalisiert (anders als heard_about/phone/name) - ohne `NULLIF(...,'')` in der Query erschienen zwei optisch identische "(keine Angabe)"-Zeilen für NULL und ''. Query-seitig gefixt, Ursache in `main.py` (Submit-Handler) nicht angefasst - dort betrifft es auch utm_source/medium/term/content/gclid/fbclid/referrer/landing_page, nicht nur campaign.
 
 ## Phase 4 — Geocoding (Mo, ~2-3h)
 - [ ] Nominatim: structured query, countrycodes=de, limit=5, User-Agent, Timeout

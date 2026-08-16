@@ -1,5 +1,5 @@
 """Admin-Dashboard: Login + Lead-Liste + Detailansicht + Aktionen + CSV-
-Export (Konzept §6). Auswertungs-Tab folgt noch.
+Export + Auswertung (Konzept §6/§7). Damit ist Phase 3 vollständig.
 
 Session per signiertem Cookie (itsdangerous, SESSION_SECRET - eigenes
 Secret, getrennt von EDIT_TOKEN_SECRET, s. app/core/admin_auth.py).
@@ -33,6 +33,7 @@ from app.core.display import (
     EVENT_TYPE_LABELS,
     berlin_today_iso,
     format_berlin_datetime,
+    format_duration_de,
     status_label,
 )
 from app.core.spam import SPAM_REASON_LABELS
@@ -837,3 +838,142 @@ def _update_lead(conn: psycopg.Connection, lead_id: str, updates: dict) -> None:
         f"UPDATE leads SET {set_clauses}, updated_at = now() WHERE id = %(lead_id)s",
         {**updates, "lead_id": lead_id},
     )
+
+
+# --- Auswertung (Konzept §7) -----------------------------------------------
+# Gruppiert nach `channel`, nicht dem in §7 wörtlich genannten `utm_source` -
+# §H (später geschrieben, überschreibt §7 bewusst) verlangt ausdrücklich
+# "eine einzige verlässliche Spalte" für die Auswertung, das ist channel.
+# "Anfragen" (Volumen) zählt JEDE Zeile, auch duplikat/ersetzt/spam - eine
+# echte Submission über einen Kanal, unabhängig vom späteren Dedup-/Spam-
+# Status. Qualifiziert/Disqualifiziert/Offen sind dagegen nur die drei
+# echten Pipeline-Zustände (Offen = neu+kontaktiert); sie summieren sich
+# deshalb NICHT zu "Anfragen", sondern zu "Anfragen minus duplikat/ersetzt/
+# spam/ausland" - eine andere Frage (Volumen vs. Pipeline-Stand).
+# Alle Quoten/Prozent-Spalten teilen dieselbe Basis (Anfragen), damit "Basis:
+# n" pro Zeile eindeutig ist (Konzept §7 Ehrlichkeits-Hinweis) - nur die
+# Qualifizierungsquote hat bewusst einen anderen Nenner (nur entschiedene
+# Fälle), weil sie eine andere Frage beantwortet ("taugt der Kanal" statt
+# "wie ist die Datenqualität im gesamten Traffic").
+
+_GRUPPIERUNGEN = {
+    "channel": ("Kanal", "channel"),
+    "campaign": ("Kampagne", "utm_campaign"),
+    "heard_about": ("Wie gefunden", "heard_about"),
+    "bundesland": ("Bundesland", "geo_state"),
+}
+_DEFAULT_GRUPPIERUNG = "channel"
+_MIN_BASIS_FUER_QUOTEN = 10
+
+
+@router.get("/auswertung")
+def auswertung(request: Request):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    gruppierung = request.query_params.get("gruppieren_nach", _DEFAULT_GRUPPIERUNG)
+    if gruppierung not in _GRUPPIERUNGEN:
+        gruppierung = _DEFAULT_GRUPPIERUNG
+    _, group_column = _GRUPPIERUNGEN[gruppierung]
+
+    with get_connection() as conn:
+        rows = _fetch_auswertung(conn, group_column)
+        kreuztabelle = _fetch_kreuztabelle(conn)
+
+    zeilen = [_decorate_auswertung_row(r) for r in rows]
+    gesamt_anfragen = sum(r["anfragen"] for r in zeilen)
+
+    context = {
+        "username": admin_username,
+        "gruppierungen": _GRUPPIERUNGEN,
+        "aktive_gruppierung": gruppierung,
+        "zeilen": zeilen,
+        "gesamt_anfragen": gesamt_anfragen,
+        "kreuztabelle": kreuztabelle,
+        "min_basis": _MIN_BASIS_FUER_QUOTEN,
+        "channel_labels": CHANNEL_LABELS,
+    }
+    return templates.TemplateResponse(request=request, name="admin_auswertung.html", context=context)
+
+
+def _fetch_auswertung(conn: psycopg.Connection, group_column: str) -> list[dict]:
+    # group_column kommt ausschließlich aus dem festen _GRUPPIERUNGEN-Dict
+    # oben (Whitelist-Lookup über gruppieren_nach), nie direkt aus der
+    # Request - sicher trotz f-String-Interpolation des Spaltennamens.
+    # NULLIF(..., ''): utm_campaign (anders als heard_about/phone/name) wird
+    # beim Submit NICHT von leer-String auf NULL normalisiert (main.py), das
+    # hidden Formularfeld schickt bei fehlendem UTM-Parameter value="" statt
+    # gar nichts. Ohne NULLIF entstünden zwei optisch identische "(keine
+    # Angabe)"-Zeilen für NULL und '' - eine echte, aber andere Gruppe, nur
+    # unsichtbar gemacht (Fund beim Bauen, s. Rückmeldung an Marco).
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"""
+            SELECT
+                NULLIF({group_column}, '') AS gruppe,
+                count(*) AS anfragen,
+                count(*) FILTER (WHERE status IN ('neu', 'kontaktiert')) AS offen,
+                count(*) FILTER (WHERE status = 'qualifiziert') AS qualifiziert,
+                count(*) FILTER (WHERE status = 'disqualifiziert') AS disqualifiziert,
+                count(*) FILTER (WHERE is_owner = true) AS eigentuemer_ja,
+                count(*) FILTER (WHERE is_owner IS NOT NULL) AS eigentuemer_angabe,
+                avg(contacted_at - created_at) FILTER (WHERE contacted_at IS NOT NULL) AS zeit_bis_kontakt,
+                count(*) FILTER (
+                    WHERE phone_raw IS NOT NULL AND phone_raw <> '' AND NOT phone_valid
+                ) AS telefon_unlesbar,
+                count(*) FILTER (WHERE geocode_status IN ('mehrdeutig', 'nicht_gefunden')) AS adresse_unklar,
+                count(*) FILTER (WHERE is_spam) AS spam
+            FROM leads
+            GROUP BY NULLIF({group_column}, '')
+            ORDER BY anfragen DESC, gruppe ASC NULLS LAST
+            """
+        )
+        return cur.fetchall()
+
+
+def _fetch_kreuztabelle(conn: psycopg.Connection) -> dict:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT channel, geo_state, count(*) AS anzahl
+            FROM leads
+            GROUP BY channel, geo_state
+            """
+        )
+        rows = cur.fetchall()
+
+    kanaele = sorted({r["channel"] or "(keine Angabe)" for r in rows})
+    bundeslaender = sorted({r["geo_state"] or "(keine Angabe)" for r in rows})
+    matrix = {k: {b: 0 for b in bundeslaender} for k in kanaele}
+    for r in rows:
+        k = r["channel"] or "(keine Angabe)"
+        b = r["geo_state"] or "(keine Angabe)"
+        matrix[k][b] = r["anzahl"]
+
+    return {"kanaele": kanaele, "bundeslaender": bundeslaender, "matrix": matrix}
+
+
+def _quote(zaehler: int, nenner: int) -> str:
+    if nenner == 0:
+        return "–"
+    return f"{round(100 * zaehler / nenner)}%"
+
+
+def _decorate_auswertung_row(row: dict) -> dict:
+    anfragen = row["anfragen"]
+    entschieden = row["qualifiziert"] + row["disqualifiziert"]
+    return {
+        "gruppe": row["gruppe"] or "(keine Angabe)",
+        "anfragen": anfragen,
+        "offen": row["offen"],
+        "qualifiziert": row["qualifiziert"],
+        "disqualifiziert": row["disqualifiziert"],
+        "qualifizierungsquote": _quote(row["qualifiziert"], entschieden),
+        "eigentuemer_anteil": _quote(row["eigentuemer_ja"], row["eigentuemer_angabe"]),
+        "zeit_bis_kontakt": format_duration_de(row["zeit_bis_kontakt"]),
+        "telefon_unlesbar_pct": _quote(row["telefon_unlesbar"], anfragen),
+        "adresse_unklar_pct": _quote(row["adresse_unklar"], anfragen),
+        "spam_pct": _quote(row["spam"], anfragen),
+        "niedrige_basis": anfragen < _MIN_BASIS_FUER_QUOTEN,
+    }

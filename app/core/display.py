@@ -4,7 +4,7 @@ Datenbank speichert timestamptz in UTC; Anzeige ist immer Europe/Berlin,
 nie naive datetimes. zoneinfo statt fixem Offset, damit die Sommerzeit-
 Umstellung automatisch stimmt.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 _BERLIN = ZoneInfo("Europe/Berlin")
@@ -83,3 +83,18 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "ersetzt": "Durch Korrektur ersetzt",
     "kontakt_bekannt": "Kontakt bereits bekannt",
 }
+
+
+def format_duration_de(value: timedelta | None) -> str:
+    """Für "Ø Zeit bis Erstkontakt" (Konzept §7) - Postgres liefert
+    avg(contacted_at - created_at) als Interval, psycopg als timedelta."""
+    if value is None:
+        return "–"
+    total_minutes = round(value.total_seconds() / 60)
+    if total_minutes < 60:
+        return f"{total_minutes} Min."
+    total_hours, minutes = divmod(total_minutes, 60)
+    if total_hours < 24:
+        return f"{total_hours} Std. {minutes} Min."
+    days, hours = divmod(total_hours, 24)
+    return f"{days} Tag(e) {hours} Std."
