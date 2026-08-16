@@ -3,6 +3,78 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
+## Stand 16.08. abends — für den Einstieg in eine neue Session
+
+Phase 1 und Phase 2 sind fertig und committet (15 Commits, siehe `git log`).
+Phase 3 ist bis zum Login fertig; die Lead-Liste fehlt noch. Admin-Login wurde
+vom Nutzer live getestet und funktioniert. **Nächster Schritt: Lead-Liste im
+Dashboard bauen** (siehe Punkte weiter unten in Phase 3), erst danach
+Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab.
+
+### Module (app/)
+- `main.py` — Routen `/health`, `/` (Formular, inkl. Vorbefüllung über `?k=`),
+  `/datenschutz`, `/danke`, `POST /submit` (Orchestrierung). `load_dotenv()`
+  und `logging.basicConfig()` laufen ganz am Anfang, vor allen `app.*`-Imports
+  (s. `docs/FUNDE.md` — sonst brechen Imports bzw. verschwinden Dry-Run-Logs).
+- `admin.py` — `APIRouter(prefix="/admin")`: Login/Logout, Dashboard-Platzhalter.
+  Session-Cookie über `app/core/admin_auth.py` (eigenes `SESSION_SECRET`).
+- `submission.py` — `persist_submission()`: Dedup-Kandidat suchen, Entscheidung
+  aus `app.core.dedup` anwenden, INSERT/UPDATE + `lead_events` schreiben, alles
+  auf einer Connection/Transaktion. `resolve_current_lead()` folgt der
+  `superseded_by`-Kette für die Vorbefüllung.
+- `mail.py` — `send_confirmation_email()`: Spam → keine Mail, sonst Tageslimit
+  (`usage_counters`) prüfen, dann `DRY_RUN_EMAIL`-Zweig (volle Logik, kein
+  Versand, Status `simuliert`) oder echter Brevo-Versand. Intro-Text variiert
+  je nach `DedupCase` (`_INTRO_TEXT_BY_CASE`).
+- `app/core/*` — reine Funktionen ohne DB/HTTP, je mit Tabellentest in
+  `tests/core/`: `normalize.py`, `text.py`/`content_hash.py`, `dedup.py`,
+  `merge.py`, `spam.py`, `validation.py`, `channel.py`, `edit_token.py`,
+  `admin_auth.py`.
+- `db.py` — `get_connection()`, `prepare_threshold=None` für den Transaction
+  Pooler, eine Connection pro Request.
+- `config.py` — Kontingent-Env-Werte (`DRY_RUN_EMAIL`, `MAX_EMAILS_PER_DAY`, ...).
+  Docstring dort ist veraltet ("wird von nichts importiert") — wird
+  inzwischen von `app/mail.py` importiert, Kommentar bei Gelegenheit korrigieren.
+- `templating.py` — gemeinsame `Jinja2Templates`-Instanz (verhindert Zirkelimport
+  zwischen `main.py` und `admin.py`).
+
+### Submit-Pfad (Kurzfassung)
+`POST /submit` → `validate_submission` (422 bei Fehlern, Eingaben bleiben
+erhalten) → `detect_spam` → Normalisierung (`normalize_phone/email/name`) →
+`derive_channel` → `content_hash` → `persist_submission` (F1-F4-Entscheidung,
+bei F3 `merge_fields`) → bei allem außer F1: `send_confirmation_email` (Fehler
+dort brechen den Submit nie ab, CLAUDE.md Regel 2) → PRG-Redirect nach
+`/danke?k=<edit_token>`.
+
+### Dashboard — aktueller Stand
+Vorhanden: Login (`GET/POST /admin/login`), Logout, Platzhalter-Dashboard
+unter `GET /admin` ("Angemeldet als X"). Fehlt komplett: Lead-Liste, Tabs,
+Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab — siehe Phase 3 unten,
+Punkte sind alle noch offen.
+
+### Offene Punkte / Entscheidungen für die nächste Session
+- **MX-Prüfung (Konzept §D):** bewusst NICHT eingebaut. `validate_submission`
+  prüft nur Syntax (`email-validator`, `check_deliverability=False`), keine
+  DNS-Abfrage. Begründung im Docstring von `app/core/validation.py`: ein
+  Netzwerk-Aufruf während der reinen Validierung würde die Funktion nicht mehr
+  ohne Netzwerk testbar machen. Muss vor Abgabe nochmal bewusst entschieden
+  werden (einbauen vor `persist_submission` mit Timeout, oder als Scope-Cut in
+  NOTES.md dokumentieren).
+- **F2-Mailtext:** enthält aktuell einen Gedankenstrich ("... vorliegenden
+  Anfrage — es hat sich nichts geändert."). In `app/mail.py`,
+  `_INTRO_TEXT_BY_CASE[DedupCase.F2_DUPLIKAT]`. Vor Abgabe nochmal gegenlesen,
+  ob das Zeichen so bleiben soll oder umformuliert wird (z.B. mit Punkt statt
+  Gedankenstrich).
+- **Retry-Endpunkt (`POST /admin/retry`) existiert noch nicht.** Fehlgeschlagene
+  Mails (`email_status='fehlgeschlagen'`/`'offen'` nach Tageslimit) bleiben
+  bis dahin unbehandelt liegen. Kommt mit Phase 4 (Geocoding), ist aber auch
+  für Mail-Retries relevant — beim Bauen beide Fälle mitdenken.
+- **Geocoding (Phase 4) noch nicht begonnen:** `DRY_RUN_GEOCODE`/
+  `MAX_GEOCODE_PER_MINUTE` sind in `config.py` vorbereitet, aber nirgends
+  benutzt.
+- `.venv` ist die persistente Projekt-Umgebung (nicht neu anlegen). Aktuell
+  88 pytest-Tests, alle grün.
+
 ## Phase 0 — Konzept fixieren (Chat) ✅ weitgehend
 - [x] Datenmodell + Pipeline + Risiken (KONZEPT v2)
 - [x] Review-Runde: Felder, Duplikat-Semantik, Mail-Regel, Konflikte K1-K6
@@ -11,34 +83,34 @@ Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 - [x] Review 4: Korrekturfenster 1h, Kanal-Ableitung, Namens-Normalisierung, Spam-Muster, Kontakt im Footer
 - [ ] Nur noch offen: nichts. Konzept ist final.
 
-## Phase 1 — Accounts & Skelett (Fr, ~2-3h)
-- [ ] Accounts nach SETUP.md Schritt 1: Brevo zuerst (Verifizierung!), dann Supabase, Vercel, GitHub
-- [ ] Lokaler Ordner + git init + docs/ (SETUP.md Schritt 2), CLAUDE.md ins Wurzelverzeichnis
-- [ ] Repo `planeco-standort-check` (public), .env.example, attribution-Setting
-- [ ] FastAPI-Skelett deployed auf Vercel, URL erreichbar
-- [ ] Schema v2 in Supabase (leads + lead_events), Testzeile schreiben/lesen
-- [ ] Env-Variablen bei Vercel
+## Phase 1 — Accounts & Skelett (Fr, ~2-3h) ✅
+- [x] Accounts nach SETUP.md Schritt 1: Brevo zuerst (Verifizierung!), dann Supabase, Vercel, GitHub
+- [x] Lokaler Ordner + git init + docs/ (SETUP.md Schritt 2), CLAUDE.md ins Wurzelverzeichnis
+- [x] Repo `planeco-standort-check` (public), .env.example, attribution-Setting
+- [x] FastAPI-Skelett deployed auf Vercel, URL erreichbar
+- [x] Schema v2 in Supabase (leads + lead_events), Testzeile schreiben/lesen
+- [x] Env-Variablen bei Vercel
 - **Abbruchkriterium:** läuft das Fr abend nicht → Sa früh Ursache klären, nicht auf wackligem Deploy weiterbauen
 
-## Phase 2 — Kernpfad (Sa, ~4-5h)
-- [ ] Formular mit Feldliste §3.1 v3 (nur Adresse+E-Mail+Datenschutz Pflicht, Rest optional markiert)
-- [ ] Hidden Fields: utm_*, gclid, fbclid, referrer, landing_page, token, rendered_at, Honeypot
-- [ ] POST /submit: Server-Validierung (422 re-rendert MIT Eingaben), Normalisierung, content_hash, Dedup-Entscheidung F1-F4, INSERT, PRG
-- [ ] F3 Feld-Merge (neu gewinnt bei Konflikt, alt füllt Lücken) + superseded-Kette + Events mit changed_fields/merged_fields
-- [ ] E-Mail-Validierung: Client type=email + JS-Tippfehlervorschlag; Server Syntax + MX (email-validator)
-- [ ] Namens-Normalisierung (nur bei durchgaengig GROSS/klein), name_raw erhalten, Tabellentest inkl. McDonald/van der Berg/Mueller-Luedenscheidt
-- [ ] Kanal-Ableitung beim INSERT: channel + channel_source nach Prioritaetsliste, Tabellentest
-- [ ] process_after setzen (Env PROCESS_DELAY_MINUTES, Default 60)
-- [ ] Kontakthinweis im Formular-Footer und auf Fehlerseiten (Env-Variablen)
-- [ ] Bestätigungsmail: HTML-Template (Datenzusammenfassung, Korrektur-Hinweis, Erwartung, Kontaktblock), best effort, Statusfelder
-- [ ] Mail-Ausnahmen: nur F1 und Spam bekommen keine Mail (Konzept SS E)
-- [ ] Korrektur-Link mit Vorbefuellung: signiertes Token (itsdangerous, 7 Tage), GET /?k=... befuellt Formular, kein Schreibzugriff
-- [ ] Spam-Erkennung: Honeypot, Zeitschwelle, Link-Zaehler im message-Feld, Zeichensatz-Heuristik
-- [ ] pytest: normalize_phone (5 Beispielformate), content_hash-Stabilität, dedup_decision F1-F4, merge_fields (neu/leer/beide leer)
+## Phase 2 — Kernpfad (Sa, ~4-5h) ✅
+- [x] Formular mit Feldliste §3.1 v3 (nur Adresse+E-Mail+Datenschutz Pflicht, Rest optional markiert)
+- [x] Hidden Fields: utm_*, gclid, fbclid, referrer, landing_page, token, rendered_at, Honeypot
+- [x] POST /submit: Server-Validierung (422 re-rendert MIT Eingaben), Normalisierung, content_hash, Dedup-Entscheidung F1-F4, INSERT, PRG
+- [x] F3 Feld-Merge (neu gewinnt bei Konflikt, alt füllt Lücken) + superseded-Kette + Events mit changed_fields/merged_fields
+- [x] E-Mail-Validierung: Client type=email + JS-Tippfehlervorschlag; Server Syntax (email-validator) — **MX-Prüfung bewusst ausgelassen, s. offene Punkte oben**
+- [x] Namens-Normalisierung (nur bei durchgaengig GROSS/klein), name_raw erhalten, Tabellentest inkl. McDonald/van der Berg/Mueller-Luedenscheidt
+- [x] Kanal-Ableitung beim INSERT: channel + channel_source nach Prioritaetsliste, Tabellentest
+- [ ] process_after setzen (Env PROCESS_DELAY_MINUTES, Default 60) — noch nicht gebaut, hängt mit Phase 4 zusammen
+- [x] Kontakthinweis im Formular-Footer und auf Fehlerseiten (Env-Variablen)
+- [x] Bestätigungsmail: HTML-Template (Datenzusammenfassung, Korrektur-Hinweis, Erwartung, Kontaktblock), best effort, Statusfelder
+- [x] Mail-Ausnahmen: nur F1 und Spam bekommen keine Mail (Konzept SS E)
+- [x] Korrektur-Link mit Vorbefuellung: signiertes Token (itsdangerous, 7 Tage), GET /?k=... befuellt Formular, kein Schreibzugriff
+- [x] Spam-Erkennung: Honeypot, Zeitschwelle, Link-Zaehler im message-Feld, Zeichensatz-Heuristik
+- [x] pytest: normalize_phone (5 Beispielformate), content_hash-Stabilität, dedup_decision F1-F4, merge_fields (neu/leer/beide leer)
 
-## Phase 3 — Dashboard (So, ~3-4h)
-- [ ] Login (Env-Credentials, signierter Cookie, constant-time)
-- [ ] Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam default aus, Toggle
+## Phase 3 — Dashboard (So, ~3-4h) — Login fertig, Rest offen
+- [x] Login (Env-Credentials, signierter Cookie, constant-time) — vom Nutzer live getestet, funktioniert
+- [ ] **Nächster Schritt:** Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam default aus, Toggle
 - [ ] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext), Kanal (utm_source + heard_about getrennt)
 - [ ] Badges: erneut angefragt / vom Kunden aktualisiert / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig
 - [ ] Detailansicht: message prominent, superseded-Kette ausgegraut, Event-Historie, Google-Maps-Link
