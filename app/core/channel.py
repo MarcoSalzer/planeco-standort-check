@@ -45,6 +45,18 @@ _UTM_SOURCE_SUBSTRINGS = (
     ("instagram", "meta_ads"),
 )
 
+# Anzeigetexte für die channel-Werte oben - fürs Dashboard (Konzept §6:
+# Kanal-Spalte), damit dort kein snake_case-Code auftaucht.
+CHANNEL_LABELS: dict[str, str] = {
+    "google_ads": "Google Ads",
+    "meta_ads": "Meta Ads",
+    "google_organisch": "Google (organisch)",
+    "andere_suche": "Andere Suchmaschine",
+    "empfehlung": "Empfehlung",
+    "direkt": "Direkt",
+    "sonstiges": "Sonstiges",
+}
+
 
 def derive_channel(
     *,

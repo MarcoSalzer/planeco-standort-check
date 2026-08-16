@@ -3,21 +3,52 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends — für den Einstieg in eine neue Session
+## Stand 16.08. abends (2) — für den Einstieg in eine neue Session
 
 Phase 1 und Phase 2 sind fertig und committet (15 Commits, siehe `git log`).
-Phase 3 ist bis zum Login fertig; die Lead-Liste fehlt noch. Admin-Login wurde
-vom Nutzer live getestet und funktioniert. **Nächster Schritt: Lead-Liste im
-Dashboard bauen** (siehe Punkte weiter unten in Phase 3), erst danach
-Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab.
+Phase 3: Login UND Lead-Liste sind jetzt fertig (Tabs, Spalten, Ampel,
+Volltextsuche, Badges, Leerzustand - s. Checkliste unten). Noch nicht
+getestet vom Nutzer im Browser, nur per curl gegen echte Supabase-Daten
+verifiziert. **Nächster Schritt: Detailansicht** (message prominent,
+superseded-Kette, Event-Historie, Google-Maps-Link), danach Aktionen,
+CSV-Export, Auswertungs-Tab.
+
+**Neu gebaut:** `app/core/ampel.py` (Ampel-Funktion nach Konzept §B, aus
+Phase 4 vorgezogen - wird für die Ampel-Spalte in der Liste gebraucht,
+Geocoding selbst bleibt Phase 4), `app/core/display.py`
+(`format_berlin_datetime`), `CHANNEL_LABELS` in `app/core/channel.py`,
+`SPAM_REASON_LABELS` in `app/core/spam.py`. `traffic_light`-Spalte wird
+noch NICHT beschrieben - die Liste berechnet die Ampel beim Lesen live aus
+`app/core/ampel.py`; das Cachen bei jedem Schreibvorgang (Konzept §F) ist
+Teil von Phase 4, wenn der Geocoding-Schreibpfad ohnehin angefasst wird.
+
+**Beim Bauen gefunden (gehört in `docs/FUNDE.md` beim Schreiben der
+NOTES.md, Phase 6):** `persist_submission()` setzt in keinem der vier
+Dedup-Fälle `status='spam'`, wenn `is_spam=true` - nur `is_spam`/
+`spam_reason` werden gesetzt, der Status bleibt `neu`/`duplikat`/geerbt.
+Dadurch tauchten spam-markierte Leads bislang in der normalen Neu-Tab auf,
+obwohl Konzept §6 sie im Standardfilter versteckt sehen will. Die
+Lead-Liste filtert deshalb defensiv zusätzlich auf `NOT is_spam` (s.
+`_fetch_leads` in `app/admin.py`) - der eigentliche INSERT in
+`app/submission.py` setzt `status` weiterhin nicht auf `'spam'`. Nicht
+selbst gefixt, weil unklar ist, ob eine spam-markierte F3-Korrektur den
+geerbten Status (R17: contacted/assigned_to bleiben erhalten) überschreiben
+soll oder nicht - vor Abgabe bewusst entscheiden (einbauen in
+`persist_submission()`, oder als bekannte Lücke in NOTES.md dokumentieren,
+analog zur MX-Prüfung oben).
 
 ### Module (app/)
 - `main.py` — Routen `/health`, `/` (Formular, inkl. Vorbefüllung über `?k=`),
   `/datenschutz`, `/danke`, `POST /submit` (Orchestrierung). `load_dotenv()`
   und `logging.basicConfig()` laufen ganz am Anfang, vor allen `app.*`-Imports
   (s. `docs/FUNDE.md` — sonst brechen Imports bzw. verschwinden Dry-Run-Logs).
-- `admin.py` — `APIRouter(prefix="/admin")`: Login/Logout, Dashboard-Platzhalter.
-  Session-Cookie über `app/core/admin_auth.py` (eigenes `SESSION_SECRET`).
+- `admin.py` — `APIRouter(prefix="/admin")`: Login/Logout, Dashboard mit
+  Lead-Liste (`GET /admin`). Session-Cookie über `app/core/admin_auth.py`
+  (eigenes `SESSION_SECRET`). `_fetch_leads()` baut Tab-/Suche-/Sortier-Query
+  (parametrisiert, LIMIT 500 s. Konzept §10), `_decorate_row()` ruft
+  `app.core.ampel` + `format_berlin_datetime` pro Zeile auf und leitet die
+  fünf Badges aus Konzept §6 her (2 per Subquery: erneut_angefragt/
+  superseded_by-Rückverweis, 3 direkt aus Feldern der Zeile).
 - `submission.py` — `persist_submission()`: Dedup-Kandidat suchen, Entscheidung
   aus `app.core.dedup` anwenden, INSERT/UPDATE + `lead_events` schreiben, alles
   auf einer Connection/Transaktion. `resolve_current_lead()` folgt der
@@ -28,8 +59,11 @@ Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab.
   je nach `DedupCase` (`_INTRO_TEXT_BY_CASE`).
 - `app/core/*` — reine Funktionen ohne DB/HTTP, je mit Tabellentest in
   `tests/core/`: `normalize.py`, `text.py`/`content_hash.py`, `dedup.py`,
-  `merge.py`, `spam.py`, `validation.py`, `channel.py`, `edit_token.py`,
-  `admin_auth.py`.
+  `merge.py`, `spam.py` (+ `SPAM_REASON_LABELS`), `validation.py`,
+  `channel.py` (+ `CHANNEL_LABELS`), `edit_token.py`, `admin_auth.py`,
+  `ampel.py` (Konzept §B, aus Phase 4 vorgezogen — reine Funktion, braucht
+  kein echtes Geocoding), `display.py` (`format_berlin_datetime`, CLAUDE.md
+  Regel 7).
 - `db.py` — `get_connection()`, `prepare_threshold=None` für den Transaction
   Pooler, eine Connection pro Request.
 - `config.py` — Kontingent-Env-Werte (`DRY_RUN_EMAIL`, `MAX_EMAILS_PER_DAY`, ...).
@@ -73,7 +107,7 @@ Punkte sind alle noch offen.
   `MAX_GEOCODE_PER_MINUTE` sind in `config.py` vorbereitet, aber nirgends
   benutzt.
 - `.venv` ist die persistente Projekt-Umgebung (nicht neu anlegen). Aktuell
-  88 pytest-Tests, alle grün.
+  108 pytest-Tests, alle grün (88 + 20 aus `test_ampel.py`/`test_display.py`).
 
 ## Phase 0 — Konzept fixieren (Chat) ✅ weitgehend
 - [x] Datenmodell + Pipeline + Risiken (KONZEPT v2)
@@ -108,11 +142,11 @@ Punkte sind alle noch offen.
 - [x] Spam-Erkennung: Honeypot, Zeitschwelle, Link-Zaehler im message-Feld, Zeichensatz-Heuristik
 - [x] pytest: normalize_phone (5 Beispielformate), content_hash-Stabilität, dedup_decision F1-F4, merge_fields (neu/leer/beide leer)
 
-## Phase 3 — Dashboard (So, ~3-4h) — Login fertig, Rest offen
+## Phase 3 — Dashboard (So, ~3-4h) — Login + Lead-Liste fertig, Rest offen
 - [x] Login (Env-Credentials, signierter Cookie, constant-time) — vom Nutzer live getestet, funktioniert
-- [ ] **Nächster Schritt:** Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam default aus, Toggle
-- [ ] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext), Kanal (utm_source + heard_about getrennt)
-- [ ] Badges: erneut angefragt / vom Kunden aktualisiert / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig
+- [x] Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam(+ausland, s.u.) default aus, Toggle "alles anzeigen"
+- [x] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext, Grund als eigene Spalte/unter Name auf schmal), Kanal (channel + heard_about getrennt) — Beschriftungen durchgängig deutsch, Volltextsuche über Name/E-Mail/Telefon/Ort, Leerzustand mit Meldung statt leerer Tabelle. Noch NICHT vom Nutzer im Browser getestet (nur curl gegen echte Daten).
+- [x] Badges: erneut angefragt / vom Kunden aktualisiert / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig
 - [ ] Detailansicht: message prominent, superseded-Kette ausgegraut, Event-Historie, Google-Maps-Link
 - [ ] Aktionen: Status, assigned_to, disqualify_reason, Mail/Geocoding-Retry einzeln, globaler Retry
 - [ ] CSV: Semikolon, UTF-8 BOM, Europe/Berlin, Qualitätsspalten

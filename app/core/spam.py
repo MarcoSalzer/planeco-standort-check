@@ -13,6 +13,15 @@ _CJK_RE = re.compile(r"[一-鿿]")
 MIN_SECONDS_BEFORE_SUBMIT = 3
 MIN_URLS_FOR_SUSPICION = 2
 
+# Anzeigetexte für die spam_reason-Codes unten - fürs Dashboard (Ampel,
+# Detailansicht), damit dort kein snake_case-Code auftaucht.
+SPAM_REASON_LABELS: dict[str, str] = {
+    "honeypot_gefuellt": "Verstecktes Feld ausgefüllt (Bot-Verdacht)",
+    "zu_schnell_abgesendet": "Formular zu schnell abgesendet",
+    "zu_viele_links_in_anmerkung": "Mehrere Links in den Anmerkungen",
+    "fremdes_schriftsystem_in_anmerkung": "Fremdes Schriftsystem in den Anmerkungen",
+}
+
 
 def detect_spam(
     *,

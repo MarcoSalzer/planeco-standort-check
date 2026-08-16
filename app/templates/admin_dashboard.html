@@ -9,25 +9,34 @@
       color-scheme: light;
       --text: #1a1a1a;
       --muted: #5a5a5a;
+      --border: #c9c9c9;
       --focus: #0a5cd8;
       --bg: #fafafa;
       --card: #ffffff;
+      --badge-bg: #eef1f5;
+      --dot-gruen: #2e7d32;
+      --dot-gelb: #a66a00;
+      --dot-rot: #c62828;
+      --dot-grau: #8a8a8a;
+      --dot-schwarz: #212121;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 1.25rem 1rem;
+      padding: 1.25rem 1rem 3rem;
       background: var(--bg);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       font-size: 16px;
     }
     header {
-      max-width: 60rem;
-      margin: 0 auto 1.5rem;
+      max-width: 75rem;
+      margin: 0 auto 1.25rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
     h1 {
       font-size: 1.3rem;
@@ -37,15 +46,184 @@
       color: var(--muted);
       font-size: 0.9rem;
       text-decoration: none;
+      white-space: nowrap;
     }
     main {
-      max-width: 60rem;
+      max-width: 75rem;
       margin: 0 auto;
       background: var(--card);
       border-radius: 0.75rem;
-      padding: 1.5rem;
+      padding: 1.25rem;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Tabs */
+    nav.tabs {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    nav.tabs a {
+      display: inline-block;
+      padding: 0.45rem 0.85rem;
+      border-radius: 999px;
+      text-decoration: none;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 600;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    nav.tabs a.active {
+      background: var(--focus);
+      border-color: var(--focus);
+      color: #fff;
+    }
+
+    /* Toolbar: Suche, Sortierung, Alle-Toggle */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    form.search {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex: 1 1 18rem;
+    }
+    form.search input[type="search"] {
+      flex: 1 1 auto;
+      min-height: 40px;
+      padding: 0.5rem 0.7rem;
+      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 0.4rem;
+      font-family: inherit;
+    }
+    form.search input:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 1px;
+    }
+    form.search button {
+      min-height: 40px;
+      padding: 0 0.9rem;
+      background: var(--focus);
+      color: #fff;
+      border: none;
+      border-radius: 0.4rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .toolbar a.toggle-link {
+      font-size: 0.85rem;
+      color: var(--focus);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .toolbar a.toggle-link:hover,
+    form.search button:hover,
+    nav.tabs a:hover {
+      opacity: 0.85;
+    }
+
+    /* Tabelle */
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table.leads {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    table.leads th {
+      text-align: left;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
       color: var(--muted);
+      padding: 0.5rem 0.6rem;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    table.leads td {
+      padding: 0.65rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    table.leads tbody tr:hover {
+      background: var(--bg);
+    }
+
+    .dot {
+      display: inline-block;
+      width: 0.6rem;
+      height: 0.6rem;
+      border-radius: 50%;
+      margin-right: 0.4rem;
+      flex: none;
+    }
+    .dot.gruen { background: var(--dot-gruen); }
+    .dot.gelb { background: var(--dot-gelb); }
+    .dot.rot { background: var(--dot-rot); }
+    .dot.grau { background: var(--dot-grau); }
+    .dot.schwarz { background: var(--dot-schwarz); }
+
+    .ampel-cell, .ampel-mobile {
+      display: flex;
+      align-items: flex-start;
+    }
+    .ampel-cell .dot, .ampel-mobile .dot {
+      margin-top: 0.3rem;
+    }
+    .ampel-mobile {
+      display: none;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.3rem;
+    }
+
+    .muted-sub {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+
+    .badge {
+      display: inline-block;
+      background: var(--badge-bg);
+      color: var(--text);
+      border-radius: 0.35rem;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.78rem;
+      margin: 0 0.3rem 0.3rem 0;
+      white-space: nowrap;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+    }
+    .empty-state p:first-child {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0 0 0.4rem;
+    }
+    .empty-state a {
+      color: var(--focus);
+    }
+
+    @media (max-width: 700px) {
+      .col-ampel { display: none; }
+      .ampel-mobile { display: flex; }
+      table.leads th, table.leads td { padding: 0.5rem 0.4rem; }
     }
   </style>
 </head>
@@ -55,7 +233,89 @@
     <a class="logout" href="/admin/logout">Abmelden ({{ username }})</a>
   </header>
   <main>
-    <p>Angemeldet als <strong>{{ username }}</strong>. Die Lead-Übersicht folgt.</p>
+    <nav class="tabs">
+      {% for key, label in tabs.items() %}
+      <a href="{{ tab_urls[key] }}" class="{{ 'active' if key == active_tab else '' }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+
+    <div class="toolbar">
+      <form class="search" method="get" action="/admin">
+        <input type="hidden" name="tab" value="{{ active_tab }}">
+        {% if show_all %}<input type="hidden" name="alle" value="1">{% endif %}
+        {% if not sort_oldest_first %}<input type="hidden" name="sort" value="neueste">{% endif %}
+        <input type="search" name="q" value="{{ search }}" placeholder="Suche nach Name, E-Mail, Telefon oder Ort" aria-label="Lead-Suche">
+        <button type="submit">Suchen</button>
+      </form>
+      {% if search %}<a class="toggle-link" href="{{ clear_search_url }}">Suche zurücksetzen</a>{% endif %}
+      <a class="toggle-link" href="{{ sort_toggle_url }}">
+        {{ "Neueste zuerst anzeigen" if sort_oldest_first else "Älteste zuerst anzeigen" }}
+      </a>
+      <a class="toggle-link" href="{{ alle_toggle_url }}">
+        {{ "Alles anzeigen (inkl. Duplikate, Ersetzt, Spam, Ausland)" if not show_all else "Nur aktive Leads anzeigen" }}
+      </a>
+    </div>
+
+    {% if leads %}
+    <div class="table-wrap">
+      <table class="leads">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Name</th>
+            <th>Ort</th>
+            <th>Bundesland</th>
+            <th class="col-ampel">Ampel</th>
+            <th>Kanal</th>
+            <th>Status</th>
+            <th>Zugewiesen</th>
+            <th>Hinweise</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lead in leads %}
+          <tr>
+            <td>{{ lead.created_at_display }}</td>
+            <td>
+              {{ lead.name or "(ohne Namen)" }}
+              <div class="ampel-mobile">
+                <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span>{{ lead.ampel_grund }}
+              </div>
+            </td>
+            <td>{{ lead.city }}</td>
+            <td>{{ lead.geo_state or "–" }}</td>
+            <td class="col-ampel">
+              <div class="ampel-cell">
+                <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span>{{ lead.ampel_grund }}
+              </div>
+            </td>
+            <td>
+              {{ channel_labels.get(lead.channel, lead.channel) }}
+              {% if lead.heard_about %}<div class="muted-sub">Selbstauskunft: {{ lead.heard_about }}</div>{% endif %}
+            </td>
+            <td>{{ lead.status|capitalize }}</td>
+            <td>{{ lead.assigned_to or "–" }}</td>
+            <td>
+              {% for badge in lead.badges %}<span class="badge">{{ badge }}</span>{% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      {% if search %}
+      <p>Keine Treffer für „{{ search }}“ in {{ tabs[active_tab] }}.</p>
+      <p><a href="{{ clear_search_url }}">Suche zurücksetzen</a></p>
+      {% else %}
+      <p>Keine Leads im Status „{{ tabs[active_tab] }}“.</p>
+      {% if not show_all %}
+      <p><a href="{{ alle_toggle_url }}">Alles anzeigen</a>, falls hier auch Duplikate, Ersetzt-, Spam- oder Auslandsfälle geprüft werden sollen.</p>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
   </main>
 </body>
 </html>
