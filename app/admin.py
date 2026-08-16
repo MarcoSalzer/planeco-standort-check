@@ -6,10 +6,11 @@ Secret, getrennt von EDIT_TOKEN_SECRET, s. app/core/admin_auth.py).
 """
 import logging
 import os
+import uuid
 from urllib.parse import urlencode
 
 import psycopg
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from psycopg.rows import dict_row
 
@@ -21,7 +22,13 @@ from app.core.admin_auth import (
 )
 from app.core.ampel import ampel as compute_ampel
 from app.core.channel import CHANNEL_LABELS
-from app.core.display import format_berlin_datetime
+from app.core.display import (
+    CONTACT_TIME_LABELS,
+    EVENT_TYPE_LABELS,
+    format_berlin_datetime,
+    status_label,
+)
+from app.core.spam import SPAM_REASON_LABELS
 from app.db import get_connection
 from app.templating import templates
 
@@ -268,7 +275,271 @@ def _decorate_row(row: dict) -> dict:
     return {
         **row,
         "created_at_display": format_berlin_datetime(row["created_at"]),
+        "status_display": status_label(row["status"]),
         "ampel_farbe": result.farbe,
         "ampel_grund": result.grund,
         "badges": badges,
+    }
+
+
+# --- Detailansicht (Konzept §6) ------------------------------------------
+
+
+@router.get("/leads/{lead_id}")
+def lead_detail(request: Request, lead_id: str):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    try:
+        uuid.UUID(lead_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+
+    with get_connection() as conn:
+        row = _fetch_lead(conn, lead_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+        ancestors = _fetch_ancestor_chain(conn, lead_id)
+        # str() auf jede id: psycopg liefert leads.id als UUID-Objekt zurück,
+        # lead_id (Pfad-Parameter) ist ein plain str - eine gemischte Liste
+        # kann psycopg nicht als Array-Parameter adaptieren (DataError).
+        chain_ids = [str(a["id"]) for a in ancestors] + [lead_id]
+        events = _fetch_events(conn, chain_ids)
+        duplicate_of_row = _fetch_lead_summary(conn, row["duplicate_of"]) if row["duplicate_of"] else None
+        superseded_by_row = _fetch_lead_summary(conn, row["superseded_by"]) if row["superseded_by"] else None
+
+    context = _build_detail_context(row, ancestors, events, duplicate_of_row, superseded_by_row)
+    context["username"] = admin_username
+    return templates.TemplateResponse(request=request, name="admin_lead_detail.html", context=context)
+
+
+def _fetch_lead(conn: psycopg.Connection, lead_id: str) -> dict | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT * FROM leads WHERE id = %(id)s", {"id": lead_id})
+        return cur.fetchone()
+
+
+def _fetch_lead_summary(conn: psycopg.Connection, lead_id: str) -> dict | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT id, created_at, name, email, street, city FROM leads WHERE id = %(id)s",
+            {"id": lead_id},
+        )
+        return cur.fetchone()
+
+
+def _fetch_ancestor_chain(conn: psycopg.Connection, lead_id: str) -> list[dict]:
+    """Läuft rückwärts durch die superseded_by-Kette (Konzept §4 F3): alle
+    Vorgänger-Versionen, die (ggf. über mehrere Korrekturen) zum aktuell
+    betrachteten Lead geführt haben. Älteste zuerst - im Dashboard
+    "ausgegraut darunter" (Konzept §6). Jeder Lead hat höchstens einen
+    direkten Nachfolger (_find_dedup_candidate wählt genau einen Kandidaten),
+    die Kette ist also linear, kein Baum."""
+    ancestors: list[dict] = []
+    current_id = lead_id
+    with conn.cursor(row_factory=dict_row) as cur:
+        for _ in range(50):  # Sicherheitsnetz analog resolve_current_lead() in submission.py
+            cur.execute(
+                """
+                SELECT id, created_at, name, email, phone_raw, street, postal_code, city, status
+                FROM leads WHERE superseded_by = %(id)s
+                """,
+                {"id": current_id},
+            )
+            row = cur.fetchone()
+            if row is None:
+                break
+            ancestors.append(row)
+            current_id = row["id"]
+    ancestors.reverse()
+    return ancestors
+
+
+def _fetch_events(conn: psycopg.Connection, lead_ids: list[str]) -> list[dict]:
+    """Event-Historie über die GESAMTE superseded-Kette, nicht nur den
+    aktuellen Datensatz: bei einer Korrektur (F3) hängt das 'ersetzt'-Event
+    am alten lead_id, das folgende 'mail_gesendet' etc. am neuen - erst die
+    Vereinigung ergibt die vollständige Geschichte dieses Leads."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT lead_id, event_type, payload, created_at
+            FROM lead_events
+            WHERE lead_id = ANY(%(ids)s)
+            ORDER BY created_at ASC
+            """,
+            {"ids": lead_ids},
+        )
+        return cur.fetchall()
+
+
+def _ja_nein(value: bool | None) -> str:
+    return {True: "Ja", False: "Nein"}.get(value, "–")
+
+
+def _text(value) -> str:
+    return str(value) if value not in (None, "") else "–"
+
+
+def _dt(value) -> str:
+    return format_berlin_datetime(value) if value is not None else "–"
+
+
+def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Alle Lead-Spalten außer message/duplicate_of/superseded_by/
+    traffic_light(_reason) - message steht prominent oben, duplicate_of/
+    superseded_by als Banner, traffic_light wird live über app.core.ampel
+    berechnet statt der (vor Phase 4 ohnehin leeren) Cache-Spalte gezeigt.
+    "Alle Felder, auch leere" (Marco, 2026-08-16): jede Zeile erscheint
+    immer, mit "–" statt Auslassung wenn leer."""
+    name_value = row["name"] or "–"
+    if row["name_normalized"] and row["name_raw"]:
+        name_value += f" (wie eingegeben: {row['name_raw']})"
+
+    email_value = row["email"]
+    if row["email_normalized"] and row["email_normalized"] != row["email"]:
+        email_value += f" (normalisiert: {row['email_normalized']})"
+
+    if row["phone_raw"]:
+        if row["phone_valid"] and row["phone_e164"]:
+            phone_value = f"{row['phone_raw']} (gültig, E.164: {row['phone_e164']})"
+        else:
+            phone_value = f"{row['phone_raw']} (nicht als gültige Nummer erkannt)"
+    else:
+        phone_value = "–"
+
+    maps_link = "– (noch nicht geokodiert)"
+    if row["lat"] is not None and row["lon"] is not None:
+        maps_link = f"https://maps.google.com/?q={row['lat']},{row['lon']}"
+
+    koordinaten = f"{row['lat']}, {row['lon']}" if row["lat"] is not None else "–"
+
+    return [
+        ("Kontakt", [
+            ("Name", name_value),
+            ("E-Mail", email_value),
+            ("Telefon", phone_value),
+        ]),
+        ("Adresse (Grundstück)", [
+            ("Straße", _text(row["street"])),
+            ("PLZ", _text(row["postal_code"])),
+            ("Ort", _text(row["city"])),
+            ("Bundesland", _text(row["geo_state"])),
+            ("Land", _text(row["geo_country"])),
+            ("Karten-Link", maps_link),
+        ]),
+        ("Fachliche Angaben", [
+            ("Eigentümer des Grundstücks?", _ja_nein(row["is_owner"])),
+            ("Erreichbarkeit", CONTACT_TIME_LABELS.get(row["contact_time_preference"], "–")),
+            ("Wie gefunden", _text(row["heard_about"])),
+        ]),
+        ("Bearbeitung", [
+            ("Status", status_label(row["status"])),
+            ("Zugewiesen an", _text(row["assigned_to"])),
+            ("Kontaktiert am", _dt(row["contacted_at"])),
+            ("Disqualifikationsgrund", _text(row["disqualify_reason"])),
+        ]),
+        ("Herkunft", [
+            ("Kanal", CHANNEL_LABELS.get(row["channel"], _text(row["channel"]))),
+            ("Kanal-Quelle", _text(row["channel_source"])),
+            ("UTM Source", _text(row["utm_source"])),
+            ("UTM Medium", _text(row["utm_medium"])),
+            ("UTM Campaign", _text(row["utm_campaign"])),
+            ("UTM Term", _text(row["utm_term"])),
+            ("UTM Content", _text(row["utm_content"])),
+            ("Google Click ID (gclid)", _text(row["gclid"])),
+            ("Facebook Click ID (fbclid)", _text(row["fbclid"])),
+            ("Referrer", _text(row["referrer"])),
+            ("Landingpage", _text(row["landing_page"])),
+        ]),
+        ("Spam-Prüfung", [
+            ("Spamverdacht?", _ja_nein(row["is_spam"])),
+            ("Grund", SPAM_REASON_LABELS.get(row["spam_reason"], _text(row["spam_reason"]))),
+        ]),
+        ("Bestätigungsmail", [
+            ("Status", status_label(row["email_status"])),
+            ("Versuche", str(row["email_attempts"])),
+            ("Letzter Fehler", _text(row["email_last_error"])),
+            ("Gesendet am", _dt(row["email_sent_at"])),
+            ("Auslandshinweis-Status", status_label(row["ausland_hinweis_status"])),
+            ("Interesse an Erweiterung ins Ausland", _ja_nein(row["expansion_opt_in"])),
+        ]),
+        ("Geocoding", [
+            ("Status", status_label(row["geocode_status"])),
+            ("Versuche", str(row["geocode_attempts"])),
+            ("Koordinaten", koordinaten),
+            ("Gemeinde", _text(row["geo_municipality"])),
+            ("Im Einzugsgebiet?", _ja_nein(row["in_service_area"])),
+            ("Rohdaten (Nominatim)", _text(row["geocode_raw"])),
+        ]),
+        ("Datenschutz & Zeiten", [
+            ("Datenschutz akzeptiert am", _dt(row["privacy_accepted_at"])),
+            ("Verarbeitung ab", _dt(row["process_after"])),
+            ("Erstellt am", _dt(row["created_at"])),
+            ("Zuletzt geändert", _dt(row["updated_at"])),
+        ]),
+        ("Technisch", [
+            ("Lead-ID", str(row["id"])),
+            ("Submission-Token", str(row["submission_token"])),
+            ("Content-Hash", row["content_hash"]),
+        ]),
+    ]
+
+
+def _build_detail_context(
+    row: dict,
+    ancestors: list[dict],
+    events: list[dict],
+    duplicate_of_row: dict | None,
+    superseded_by_row: dict | None,
+) -> dict:
+    result = compute_ampel(
+        is_spam=row["is_spam"],
+        spam_reason=row["spam_reason"],
+        in_service_area=row["in_service_area"],
+        geocode_status=row["geocode_status"],
+        geo_state=row["geo_state"],
+        geo_country=row["geo_country"],
+        geocode_candidate_count=None,
+        phone_raw=row["phone_raw"],
+        phone_valid=row["phone_valid"],
+        postal_code=row["postal_code"],
+    )
+
+    ancestors_display = [
+        {
+            **a,
+            "created_at_display": format_berlin_datetime(a["created_at"]),
+        }
+        for a in ancestors
+    ]
+
+    if duplicate_of_row is not None:
+        duplicate_of_row = {**duplicate_of_row, "created_at_display": format_berlin_datetime(duplicate_of_row["created_at"])}
+    if superseded_by_row is not None:
+        superseded_by_row = {**superseded_by_row, "created_at_display": format_berlin_datetime(superseded_by_row["created_at"])}
+
+    events_display = [
+        {
+            **e,
+            "created_at_display": format_berlin_datetime(e["created_at"]),
+            "label": EVENT_TYPE_LABELS.get(e["event_type"], e["event_type"]),
+        }
+        for e in events
+    ]
+
+    return {
+        "lead": row,
+        "lead_id": row["id"],
+        "created_at_display": format_berlin_datetime(row["created_at"]),
+        "status_display": status_label(row["status"]),
+        "ampel_farbe": result.farbe,
+        "ampel_grund": result.grund,
+        "message": row["message"],
+        "field_groups": _field_groups(row),
+        "ancestors": ancestors_display,
+        "events": events_display,
+        "duplicate_of_row": duplicate_of_row,
+        "superseded_by_row": superseded_by_row,
     }

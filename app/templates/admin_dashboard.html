@@ -159,6 +159,15 @@
     table.leads tbody tr:hover {
       background: var(--bg);
     }
+    table.leads td a {
+      color: var(--text);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    table.leads td a:hover {
+      color: var(--focus);
+      text-decoration: underline;
+    }
 
     .dot {
       display: inline-block;
@@ -277,7 +286,7 @@
           <tr>
             <td>{{ lead.created_at_display }}</td>
             <td>
-              {{ lead.name or "(ohne Namen)" }}
+              <a href="/admin/leads/{{ lead.id }}">{{ lead.name or "(ohne Namen)" }}</a>
               <div class="ampel-mobile">
                 <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span>{{ lead.ampel_grund }}
               </div>
@@ -293,7 +302,7 @@
               {{ channel_labels.get(lead.channel, lead.channel) }}
               {% if lead.heard_about %}<div class="muted-sub">Selbstauskunft: {{ lead.heard_about }}</div>{% endif %}
             </td>
-            <td>{{ lead.status|capitalize }}</td>
+            <td>{{ lead.status_display }}</td>
             <td>{{ lead.assigned_to or "–" }}</td>
             <td>
               {% for badge in lead.badges %}<span class="badge">{{ badge }}</span>{% endfor %}

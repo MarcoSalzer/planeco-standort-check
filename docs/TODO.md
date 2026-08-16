@@ -147,8 +147,8 @@ Punkte sind alle noch offen.
 - [x] Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam(+ausland, s.u.) default aus, Toggle "alles anzeigen"
 - [x] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext, Grund als eigene Spalte/unter Name auf schmal), Kanal (channel + heard_about getrennt) — Beschriftungen durchgängig deutsch, Volltextsuche über Name/E-Mail/Telefon/Ort, Leerzustand mit Meldung statt leerer Tabelle. Noch NICHT vom Nutzer im Browser getestet (nur curl gegen echte Daten).
 - [x] Badges: erneut angefragt / vom Kunden aktualisiert / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig
-- [ ] Detailansicht: message prominent, superseded-Kette ausgegraut, Event-Historie, Google-Maps-Link
-- [ ] Aktionen: Status, assigned_to, disqualify_reason, Mail/Geocoding-Retry einzeln, globaler Retry
+- [x] Detailansicht: alle Felder (auch leere), message prominent, superseded-Kette rückwärts aufgelöst + Banner bei duplicate_of/superseded_by, Event-Historie über die GANZE Kette (nicht nur den aktuellen Datensatz), Google-Maps-Link. Route `GET /admin/leads/{lead_id}`, verlinkt aus der Liste. Live gegen echte F3-Korrekturkette + Spam-Lead getestet, noch nicht im Browser vom Nutzer.
+- [ ] Aktionen: Status, assigned_to, disqualify_reason, "Mail erneut senden" einzeln buildbar (send_confirmation_email existiert bereits) — "Geocoding erneut"/globaler Retry-Button erst sinnvoll, wenn Phase 4 überhaupt etwas zum Retryen hat
 - [ ] CSV: Semikolon, UTF-8 BOM, Europe/Berlin, Qualitätsspalten
 - [ ] Tab Auswertung: GROUP BY utm_source/campaign/heard_about/Bundesland, Quoten + Qualitätsanteile, n<10 ausgegraut, Kreuztabelle Kanal x Bundesland
 

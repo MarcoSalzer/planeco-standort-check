@@ -21,6 +21,7 @@ from psycopg.types.json import Json
 
 from app.config import DRY_RUN_EMAIL, MAX_EMAILS_PER_DAY
 from app.core.dedup import DedupCase
+from app.core.display import CONTACT_TIME_LABELS
 from app.core.edit_token import generate_edit_token
 from app.submission import NewLeadData
 
@@ -38,13 +39,6 @@ _CONTACT_TIME_TEXT = {
     "nachmittags": "Da Sie nachmittags am besten erreichbar sind, versuchen wir es entsprechend.",
     "abends": "Da Sie abends am besten erreichbar sind, versuchen wir es entsprechend.",
     "flexibel": "Sie haben angegeben, flexibel erreichbar zu sein — wir melden uns, sobald es passt.",
-}
-
-_CONTACT_TIME_DISPLAY = {
-    "vormittags": "Vormittags",
-    "nachmittags": "Nachmittags",
-    "abends": "Abends",
-    "flexibel": "Flexibel",
 }
 
 # Unterschiedliche Einleitung je nach Anlass (mit Marco abgestimmt, 2026-08-16).
@@ -143,7 +137,7 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCas
     address = ", ".join(address_parts)
 
     owner_text = {True: "Ja", False: "Nein"}.get(data.is_owner)
-    contact_time_text = _CONTACT_TIME_DISPLAY.get(data.contact_time_preference)
+    contact_time_text = CONTACT_TIME_LABELS.get(data.contact_time_preference)
 
     summary_rows = [row for row in [
         ("Adresse", address),

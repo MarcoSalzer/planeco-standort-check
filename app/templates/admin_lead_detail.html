@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lead-Detail — Standort-Check</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --text: #1a1a1a;
+      --muted: #5a5a5a;
+      --border: #c9c9c9;
+      --focus: #0a5cd8;
+      --bg: #fafafa;
+      --card: #ffffff;
+      --highlight-bg: #fff8e1;
+      --highlight-border: #e8c34a;
+      --banner-bg: #eef1f5;
+      --dot-gruen: #2e7d32;
+      --dot-gelb: #a66a00;
+      --dot-rot: #c62828;
+      --dot-grau: #8a8a8a;
+      --dot-schwarz: #212121;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.25rem 1rem 3rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 16px;
+    }
+    header {
+      max-width: 52rem;
+      margin: 0 auto 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    h1 { font-size: 1.3rem; margin: 0; }
+    a.logout {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .back-link {
+      display: inline-block;
+      max-width: 52rem;
+      width: 100%;
+      margin: 0 auto 1rem;
+      color: var(--focus);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .page {
+      max-width: 52rem;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    .summary { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+    .summary h2 { margin: 0 0 0.3rem; font-size: 1.15rem; }
+    .summary .status-line { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
+    .ampel-line { display: flex; align-items: center; font-size: 0.95rem; }
+    .dot {
+      display: inline-block;
+      width: 0.65rem;
+      height: 0.65rem;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+      flex: none;
+    }
+    .dot.gruen { background: var(--dot-gruen); }
+    .dot.gelb { background: var(--dot-gelb); }
+    .dot.rot { background: var(--dot-rot); }
+    .dot.grau { background: var(--dot-grau); }
+    .dot.schwarz { background: var(--dot-schwarz); }
+
+    .message-card {
+      background: var(--highlight-bg);
+      border: 1px solid var(--highlight-border);
+    }
+    .message-card h3 { margin: 0 0 0.5rem; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.02em; color: #6b5400; }
+    .message-card p { margin: 0; white-space: pre-wrap; }
+
+    .banner {
+      background: var(--banner-bg);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+    }
+    .banner a { color: var(--focus); font-weight: 600; }
+
+    h2.section-title { font-size: 1rem; margin: 0 0 0.75rem; }
+
+    .field-groups { display: flex; flex-direction: column; gap: 1.25rem; }
+    .field-group h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      margin: 0 0 0.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.35rem;
+    }
+    dl.fields {
+      display: grid;
+      grid-template-columns: 14rem 1fr;
+      row-gap: 0.4rem;
+      column-gap: 1rem;
+      margin: 0;
+    }
+    dl.fields dt { color: var(--muted); font-size: 0.88rem; }
+    dl.fields dd { margin: 0; font-size: 0.9rem; word-break: break-word; }
+    @media (max-width: 560px) {
+      dl.fields { grid-template-columns: 1fr; row-gap: 0.1rem; }
+      dl.fields dd { margin-bottom: 0.5rem; }
+    }
+
+    ul.ancestors { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    ul.ancestors li {
+      opacity: 0.7;
+      border: 1px dashed var(--border);
+      border-radius: 0.5rem;
+      padding: 0.6rem 0.85rem;
+      font-size: 0.88rem;
+    }
+    ul.ancestors a { color: var(--focus); }
+
+    ul.events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+    ul.events li { border-left: 2px solid var(--border); padding-left: 0.85rem; }
+    .event-time { color: var(--muted); font-size: 0.78rem; }
+    .event-label { font-weight: 600; font-size: 0.92rem; }
+    dl.event-payload { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--muted); }
+    dl.event-payload dt { display: inline; font-weight: 600; }
+    dl.event-payload dt::after { content: ": "; }
+    dl.event-payload dd { display: inline; margin: 0 0.75rem 0 0; }
+    dl.event-payload div { margin-bottom: 0.15rem; }
+
+    .empty-hint { color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Lead-Detail</h1>
+    <a class="logout" href="/admin/logout">Abmelden ({{ username }})</a>
+  </header>
+  <a class="back-link" href="/admin">← Zurück zur Lead-Liste</a>
+
+  <div class="page">
+    <div class="card summary">
+      <div>
+        <h2>{{ lead.name or "(ohne Namen)" }}</h2>
+        <p class="status-line">Status: {{ status_display }} · Erstellt am {{ created_at_display }}</p>
+        <div class="ampel-line">
+          <span class="dot {{ ampel_farbe }}" aria-hidden="true"></span>{{ ampel_grund }}
+        </div>
+      </div>
+    </div>
+
+    {% if superseded_by_row %}
+    <div class="banner">
+      Diese Version wurde durch eine neuere Angabe vom {{ superseded_by_row.created_at_display }} ersetzt.
+      <a href="/admin/leads/{{ superseded_by_row.id }}">Aktuelle Version ansehen →</a>
+    </div>
+    {% endif %}
+    {% if duplicate_of_row %}
+    <div class="banner">
+      Dies ist eine identische Wiederholung einer bestehenden Anfrage.
+      <a href="/admin/leads/{{ duplicate_of_row.id }}">Original ansehen →</a>
+    </div>
+    {% endif %}
+
+    <div class="card message-card">
+      <h3>Anmerkungen (Gesprächseinstieg)</h3>
+      <p>{{ message or "– keine Anmerkung angegeben" }}</p>
+    </div>
+
+    {% if ancestors %}
+    <div class="card">
+      <h2 class="section-title">Frühere Versionen ({{ ancestors|length }})</h2>
+      <ul class="ancestors">
+        {% for a in ancestors %}
+        <li>
+          {{ a.created_at_display }} — {{ a.name or "(ohne Namen)" }}, {{ a.email }},
+          {{ a.street }}, {{ a.city }}
+          <a href="/admin/leads/{{ a.id }}">ansehen</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="card field-groups">
+      {% for title, fields in field_groups %}
+      <div class="field-group">
+        <h3>{{ title }}</h3>
+        <dl class="fields">
+          {% for label, value in fields %}
+          <dt>{{ label }}</dt><dd>{{ value }}</dd>
+          {% endfor %}
+        </dl>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Ereignis-Historie</h2>
+      {% if events %}
+      <ul class="events">
+        {% for event in events %}
+        <li>
+          <div class="event-time">{{ event.created_at_display }}</div>
+          <div class="event-label">{{ event.label }}</div>
+          {% if event.payload %}
+          <dl class="event-payload">
+            {% for key, value in event.payload.items() %}
+            <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
+            {% endfor %}
+          </dl>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty-hint">Keine Ereignisse erfasst.</p>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>
