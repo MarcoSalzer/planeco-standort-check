@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — Standort-Check</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --text: #1a1a1a;
+      --muted: #5a5a5a;
+      --focus: #0a5cd8;
+      --bg: #fafafa;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.25rem 1rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 16px;
+    }
+    header {
+      max-width: 60rem;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    h1 {
+      font-size: 1.3rem;
+      margin: 0;
+    }
+    a.logout {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-decoration: none;
+    }
+    main {
+      max-width: 60rem;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Standort-Check Dashboard</h1>
+    <a class="logout" href="/admin/logout">Abmelden ({{ username }})</a>
+  </header>
+  <main>
+    <p>Angemeldet als <strong>{{ username }}</strong>. Die Lead-Übersicht folgt.</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login — Standort-Check Dashboard</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --text: #1a1a1a;
+      --muted: #5a5a5a;
+      --border: #c9c9c9;
+      --focus: #0a5cd8;
+      --bg: #fafafa;
+      --card: #ffffff;
+      --error: #b3261e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.25rem 1rem;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 16px;
+    }
+    main {
+      width: 100%;
+      max-width: 22rem;
+      background: var(--card);
+      border-radius: 0.75rem;
+      padding: 2rem 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      font-size: 1.25rem;
+      margin: 0 0 1.25rem;
+      text-align: center;
+    }
+    .field {
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      font-size: 0.9rem;
+    }
+    input {
+      width: 100%;
+      min-height: 44px;
+      padding: 0.6rem 0.7rem;
+      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 0.4rem;
+      font-family: inherit;
+    }
+    input:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 1px;
+    }
+    .error {
+      background: #fdecea;
+      border: 1px solid var(--error);
+      border-radius: 0.5rem;
+      padding: 0.65rem 0.85rem;
+      margin: 0 0 1rem;
+      color: var(--error);
+      font-size: 0.9rem;
+    }
+    button[type="submit"] {
+      width: 100%;
+      min-height: 48px;
+      background: var(--focus);
+      color: #fff;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+    button[type="submit"]:hover {
+      opacity: 0.92;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Dashboard-Login</h1>
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/admin/login">
+      <div class="field">
+        <label for="username">Benutzername</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Passwort</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">Anmelden</button>
+    </form>
+  </main>
+</body>
+</html>

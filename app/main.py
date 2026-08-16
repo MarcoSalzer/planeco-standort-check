@@ -1,6 +1,5 @@
 import logging
 import os
-import pathlib
 import uuid
 from datetime import datetime, timezone
 
@@ -14,8 +13,8 @@ load_dotenv()
 
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
-from fastapi.templating import Jinja2Templates  # noqa: E402
 
+from app.admin import router as admin_router  # noqa: E402
 from app.core.channel import HEARD_ABOUT_OPTIONS, derive_channel  # noqa: E402
 from app.core.content_hash import content_hash  # noqa: E402
 from app.core.dedup import DedupCase  # noqa: E402
@@ -26,6 +25,7 @@ from app.core.validation import validate_submission  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.mail import send_confirmation_email  # noqa: E402
 from app.submission import NewLeadData, persist_submission, resolve_current_lead  # noqa: E402
+from app.templating import templates  # noqa: E402
 
 # Ohne das bleibt der Root-Logger auf WARNING (Python-Default) und
 # DRY_RUN_EMAIL-Log-Ausgaben (app.mail.dry_run, Level INFO) verschwinden
@@ -35,9 +35,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+app.include_router(admin_router)
 
 _VALUE_FIELDS = (
     "street", "postal_code", "city", "email", "phone", "name", "is_owner",
