@@ -241,9 +241,19 @@ def _fetch_leads(
                 l.channel, l.heard_about, l.status, l.assigned_to,
                 l.is_spam, l.spam_reason, l.in_service_area, l.geocode_status,
                 l.phone_raw, l.phone_valid, l.postal_code,
-                EXISTS (
-                    SELECT 1 FROM leads p WHERE p.superseded_by = l.id
-                ) AS wurde_aktualisiert,
+                l.duplicate_of, l.superseded_by,
+                (
+                    SELECT o.created_at FROM leads o WHERE o.id = l.duplicate_of
+                ) AS duplicate_of_created_at,
+                (
+                    SELECT s.created_at FROM leads s WHERE s.id = l.superseded_by
+                ) AS superseded_by_created_at,
+                (
+                    SELECT p.id FROM leads p WHERE p.superseded_by = l.id LIMIT 1
+                ) AS vorgaenger_id,
+                (
+                    SELECT p.created_at FROM leads p WHERE p.superseded_by = l.id LIMIT 1
+                ) AS vorgaenger_created_at,
                 EXISTS (
                     SELECT 1 FROM lead_events e
                     WHERE e.lead_id = l.id AND e.event_type = 'kontakt_bekannt'
@@ -262,6 +272,13 @@ def _fetch_leads(
         return cur.fetchall()
 
 
+# Status-Werte, die keine eigenständig zu bearbeitende Anfrage sind, sondern
+# ein technisches/historisches Artefakt (Konzept §4/§J) - Zeile in der Liste
+# gedämpft dargestellt statt gleichrangig neben aktiven Leads zu stehen
+# (Marco, 2026-08-16: "man muss die Logik erraten, statt sie zu sehen").
+_INAKTIVE_STATUSWERTE = {"duplikat", "ersetzt", "spam", "ausland"}
+
+
 def _decorate_row(row: dict) -> dict:
     result = compute_ampel(
         is_spam=row["is_spam"],
@@ -276,17 +293,30 @@ def _decorate_row(row: dict) -> dict:
         postal_code=row["postal_code"],
     )
 
-    badges: list[str] = []
+    badges: list[dict] = []
     if row["erneut_angefragt_am"] is not None:
-        badges.append(f"Erneut angefragt am {format_berlin_datetime(row['erneut_angefragt_am'])}")
-    if row["wurde_aktualisiert"]:
-        badges.append(f"Vom Kunden aktualisiert am {format_berlin_datetime(row['created_at'])}")
+        badges.append({"text": f"Erneut angefragt am {format_berlin_datetime(row['erneut_angefragt_am'])}", "url": None})
+    if row["duplicate_of"] and row["duplicate_of_created_at"] is not None:
+        badges.append({
+            "text": f"Duplikat von Anfrage vom {format_berlin_datetime(row['duplicate_of_created_at'])}",
+            "url": f"/admin/leads/{row['duplicate_of']}",
+        })
+    if row["superseded_by"] and row["superseded_by_created_at"] is not None:
+        badges.append({
+            "text": f"Ersetzt durch Anfrage vom {format_berlin_datetime(row['superseded_by_created_at'])}",
+            "url": f"/admin/leads/{row['superseded_by']}",
+        })
+    if row["vorgaenger_id"] and row["vorgaenger_created_at"] is not None:
+        badges.append({
+            "text": f"Frühere Version vom {format_berlin_datetime(row['vorgaenger_created_at'])}",
+            "url": f"/admin/leads/{row['vorgaenger_id']}",
+        })
     if row["kontakt_bekannt"]:
-        badges.append("Kontakt bekannt")
+        badges.append({"text": "Kontakt bekannt", "url": None})
     if row["phone_raw"] and not row["phone_valid"]:
-        badges.append("Telefon prüfen")
+        badges.append({"text": "Telefon prüfen", "url": None})
     if row["geocode_status"] == "mehrdeutig":
-        badges.append("Adresse mehrdeutig")
+        badges.append({"text": "Adresse mehrdeutig", "url": None})
 
     return {
         **row,
@@ -295,6 +325,7 @@ def _decorate_row(row: dict) -> dict:
         "ampel_farbe": result.farbe,
         "ampel_grund": result.grund,
         "badges": badges,
+        "row_inaktiv": row["status"] in _INAKTIVE_STATUSWERTE,
     }
 
 

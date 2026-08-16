@@ -24,3 +24,13 @@ WARNING steht und INFO-Meldungen ohne Handler-Konfiguration verwirft. Lokal
 nicht aufgefallen, weil Uvicorns eigene Start- und Access-Logs — separat von
 Uvicorn selbst konfiguriert — im Terminal sichtbar blieben und so den Eindruck
 erweckten, Logging funktioniere insgesamt normal.
+
+## is_spam-Sync bei manuellem Status-Wechsel (`app/admin.py`)
+
+Die Logik, die `is_spam` beim manuellen Setzen/Freigeben von `status='spam'`
+mitzieht, prüfte zunächst `status != row["status"]` statt den eingereichten
+Wert direkt — bei einem Alt-Lead, dessen `status` schon vor dem
+Spam/Dedup-Fix bei `'neu'` hängengeblieben war (obwohl `is_spam=true`), war
+eine Freigabe über genau diesen Status also keine *Änderung*, und `is_spam`
+blieb fälschlich `true`. Aufgefallen erst beim Live-Test gegen einen echten
+solchen Alt-Lead aus der Datenbank, nicht beim Schreiben des Codes selbst.

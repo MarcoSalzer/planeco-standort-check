@@ -168,6 +168,15 @@
       color: var(--focus);
       text-decoration: underline;
     }
+    table.leads td a.badge {
+      font-weight: 400;
+    }
+    table.leads tr.row-inaktiv {
+      opacity: 0.55;
+    }
+    table.leads tr.row-inaktiv:hover {
+      opacity: 0.85;
+    }
 
     .dot {
       display: inline-block;
@@ -212,6 +221,11 @@
       font-size: 0.78rem;
       margin: 0 0.3rem 0.3rem 0;
       white-space: nowrap;
+      text-decoration: none;
+    }
+    a.badge:hover {
+      text-decoration: underline;
+      color: var(--focus);
     }
 
     .empty-state {
@@ -283,7 +297,7 @@
         </thead>
         <tbody>
           {% for lead in leads %}
-          <tr>
+          <tr class="{{ 'row-inaktiv' if lead.row_inaktiv else '' }}">
             <td>{{ lead.created_at_display }}</td>
             <td>
               <a href="/admin/leads/{{ lead.id }}">{{ lead.name or "(ohne Namen)" }}</a>
@@ -305,7 +319,10 @@
             <td>{{ lead.status_display }}</td>
             <td>{{ lead.assigned_to or "–" }}</td>
             <td>
-              {% for badge in lead.badges %}<span class="badge">{{ badge }}</span>{% endfor %}
+              {% for badge in lead.badges %}
+                {% if badge.url %}<a class="badge" href="{{ badge.url }}">{{ badge.text }}</a>
+                {% else %}<span class="badge">{{ badge.text }}</span>{% endif %}
+              {% endfor %}
             </td>
           </tr>
           {% endfor %}
