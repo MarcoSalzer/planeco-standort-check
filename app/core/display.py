@@ -16,6 +16,13 @@ def format_berlin_datetime(value: datetime) -> str:
     return value.astimezone(_BERLIN).strftime("%d.%m.%Y %H:%M")
 
 
+def berlin_today_iso() -> str:
+    """Für Dateinamen (CSV-Export): sortierbares YYYY-MM-DD in Europe/Berlin,
+    bewusst nicht datetime.now().date() (das wäre UTC-Datum, kann nahe
+    Mitternacht vom Berliner Kalendertag abweichen)."""
+    return datetime.now(_BERLIN).strftime("%Y-%m-%d")
+
+
 # Anzeigetexte für contact_time_preference (Werte s. app/core/validation.py).
 # Aus app/mail.py hierher verschoben, damit Dashboard und Bestätigungsmail
 # dieselbe Quelle verwenden statt zweier unabhängiger Kopien.

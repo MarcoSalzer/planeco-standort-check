@@ -3,15 +3,17 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (3) — für den Einstieg in eine neue Session
+## Stand 16.08. abends (4) — für den Einstieg in eine neue Session
 
 Phase 1 und Phase 2 sind fertig und committet (15 Commits, siehe `git log`).
-Phase 3: Login, Lead-Liste, Detailansicht UND Aktionen sind jetzt fertig
-(s. Checkliste unten). **Nächster Schritt: CSV-Export**, danach
-Auswertungs-Tab — das schließt Phase 3 ab. Noch nichts davon vom Nutzer im
-Browser gegengetestet, nur live per curl/httpx gegen echte Supabase-Daten
-verifiziert (inkl. echter F3-Korrekturketten und Spam-Fällen aus Marcos
-eigenen Tests) — das steht vor Phase 4 noch aus.
+Phase 3: Login, Lead-Liste (inkl. sichtbarer Dedup-Beziehungen), Detail-
+ansicht, Aktionen UND CSV-Export sind fertig (s. Checkliste unten).
+**Nächster Schritt: Auswertungs-Tab** — schließt Phase 3 ab, danach Phase 4
+(Geocoding). Marco hält bewusst nach dem CSV an, um die Datei einmal
+selbst in Excel zu öffnen - noch nichts aus Phase 3 wurde im Browser
+gegengetestet, alles nur live per curl/httpx gegen echte Supabase-Daten
+verifiziert (inkl. echter F3-Korrekturketten, Spam-Fällen und jetzt einer
+Anmerkung mit Semikolon+Zeilenumbruch+Anführungszeichen fürs CSV-Escaping).
 
 **Neu gebaut seit Login:**
 - `app/core/ampel.py` — Ampel-Funktion nach Konzept §B, aus Phase 4
@@ -159,7 +161,7 @@ Punkte sind alle noch offen.
 - [x] Badges: erneut angefragt / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig, plus anklickbare Verweise ("Duplikat von Anfrage vom X" / "Ersetzt durch Anfrage vom X" / "Frühere Version vom X") zum jeweils verwandten Lead. duplikat/ersetzt/spam/ausland-Zeilen zusätzlich als ganze Zeile gedämpft (`row-inaktiv`), damit man die Dedup-Logik sieht statt sie zu erraten (Marco, 2026-08-16). Standardfilter (§6: diese vier nie im Neu/Bearbeitung/Erledigt-Tab, "Alle" ohne Toggle auch nicht) nochmal explizit über alle Tabs/Toggle-Kombinationen live verifiziert, kein Fund.
 - [x] Detailansicht: alle Felder (auch leere), message prominent, superseded-Kette rückwärts aufgelöst + Banner bei duplicate_of/superseded_by, Event-Historie über die GANZE Kette (nicht nur den aktuellen Datensatz), Google-Maps-Link. Route `GET /admin/leads/{lead_id}`, verlinkt aus der Liste. Live gegen echte F3-Korrekturkette + Spam-Lead getestet, noch nicht im Browser vom Nutzer.
 - [x] Aktionen: Status ändern (nur die 5 manuell sinnvollen Werte, s. `_MANUALLY_SETTABLE_STATUSES`), assigned_to, disqualify_reason als ein Formular (`POST /admin/leads/{id}/bearbeitung`), "Mail erneut senden" einzeln (`POST .../mail-erneut-senden`, ruft `send_confirmation_email` direkt). Status-Wechsel synct is_spam mit (Konzept §J: Fehlalarm manuell freigeben UND übersehenen Spam nachträglich markieren), setzt contacted_at automatisch beim ersten Wechsel auf 'kontaktiert', schreibt status_geaendert/zugewiesen-Events. Live getestet inkl. Selbstheilung eines inkonsistenten Alt-Leads (is_spam=true bei status='neu' aus der Zeit vor dem Spam-Fix) — **"Geocoding erneut"/globaler Retry-Button weiterhin nicht gebaut**, dafür gibt es vor Phase 4 nichts zum Retryen
-- [ ] CSV: Semikolon, UTF-8 BOM, Europe/Berlin, Qualitätsspalten
+- [x] CSV: `GET /admin/export.csv`, Semikolon, UTF-8 BOM (`utf-8-sig`), Europe/Berlin, deutsche Header, 27 Spalten (alle Eingabefelder + Kanal/Kanal-Quelle/Status/Ampel/Ampel-Grund + Qualitätsflags). Läuft über dieselben `_fetch_leads`/`_decorate_row` wie die Liste, damit Filter/Suche/Sortierung nie auseinanderlaufen können. Leere Felder als "" statt "–" (pivot-tauglich). Live getestet: BOM vorhanden, Filter/Suche respektiert (tab=neu → nur 2 Zeilen, Suche "Stuttgart" → nur Stuttgart-Zeilen), Sonderzeichen-Escaping mit echtem Semikolon+Zeilenumbruch+Anführungszeichen in einer Anmerkung geprüft (RFC4180 über csv-Modul, rundet exakt). **Noch nicht in Excel geöffnet** - das macht Marco selbst, deshalb hier angehalten.
 - [ ] Tab Auswertung: GROUP BY utm_source/campaign/heard_about/Bundesland, Quoten + Qualitätsanteile, n<10 ausgegraut, Kreuztabelle Kanal x Bundesland
 
 ## Phase 4 — Geocoding (Mo, ~2-3h)

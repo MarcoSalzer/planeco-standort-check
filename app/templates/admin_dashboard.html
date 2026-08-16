@@ -126,6 +126,13 @@
       text-decoration: none;
       white-space: nowrap;
     }
+    .toolbar a.toggle-link.csv-export {
+      margin-left: auto;
+      font-weight: 600;
+      border: 1px solid var(--focus);
+      border-radius: 0.35rem;
+      padding: 0.35rem 0.7rem;
+    }
     .toolbar a.toggle-link:hover,
     form.search button:hover,
     nav.tabs a:hover {
@@ -277,6 +284,7 @@
       <a class="toggle-link" href="{{ alle_toggle_url }}">
         {{ "Alles anzeigen (inkl. Duplikate, Ersetzt, Spam, Ausland)" if not show_all else "Nur aktive Leads anzeigen" }}
       </a>
+      <a class="toggle-link csv-export" href="{{ csv_export_url }}">CSV-Export (aktueller Filter)</a>
     </div>
 
     {% if leads %}

@@ -1,10 +1,12 @@
-"""Admin-Dashboard: Login + Lead-Liste + Detailansicht + Aktionen (Konzept
-§6). CSV-Export/Auswertungs-Tab folgen noch.
+"""Admin-Dashboard: Login + Lead-Liste + Detailansicht + Aktionen + CSV-
+Export (Konzept §6). Auswertungs-Tab folgt noch.
 
 Session per signiertem Cookie (itsdangerous, SESSION_SECRET - eigenes
 Secret, getrennt von EDIT_TOKEN_SECRET, s. app/core/admin_auth.py).
 """
+import csv
 import dataclasses
+import io
 import logging
 import os
 import uuid
@@ -13,7 +15,7 @@ from urllib.parse import urlencode
 
 import psycopg
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from psycopg.rows import dict_row
 
 from app.core.admin_auth import (
@@ -28,6 +30,7 @@ from app.core.dedup import DedupCase
 from app.core.display import (
     CONTACT_TIME_LABELS,
     EVENT_TYPE_LABELS,
+    berlin_today_iso,
     format_berlin_datetime,
     status_label,
 )
@@ -176,12 +179,17 @@ def dashboard(request: Request):
             tab=tab, show_all=show_all, search=search, sort_oldest_first=not sort_oldest_first
         ),
         "clear_search_url": _dashboard_url(tab=tab, show_all=show_all, search=None, sort_oldest_first=sort_oldest_first),
+        "csv_export_url": _dashboard_url(
+            tab=tab, show_all=show_all, search=search, sort_oldest_first=sort_oldest_first, path="/admin/export.csv"
+        ),
         "channel_labels": CHANNEL_LABELS,
     }
     return templates.TemplateResponse(request=request, name="admin_dashboard.html", context=context)
 
 
-def _dashboard_url(*, tab: str, show_all: bool, search: str | None, sort_oldest_first: bool) -> str:
+def _dashboard_url(
+    *, tab: str, show_all: bool, search: str | None, sort_oldest_first: bool, path: str = "/admin"
+) -> str:
     params: list[tuple[str, str]] = [("tab", tab)]
     if show_all:
         params.append(("alle", "1"))
@@ -189,7 +197,7 @@ def _dashboard_url(*, tab: str, show_all: bool, search: str | None, sort_oldest_
         params.append(("sort", "neueste"))
     if search:
         params.append(("q", search))
-    return "/admin?" + urlencode(params)
+    return f"{path}?" + urlencode(params)
 
 
 def _escape_ilike(term: str) -> str:
@@ -237,10 +245,12 @@ def _fetch_leads(
         cur.execute(
             f"""
             SELECT
-                l.id, l.created_at, l.name, l.city, l.geo_state, l.geo_country,
-                l.channel, l.heard_about, l.status, l.assigned_to,
+                l.id, l.created_at, l.name, l.name_raw, l.city, l.geo_state, l.geo_country,
+                l.channel, l.channel_source, l.heard_about, l.status, l.assigned_to,
                 l.is_spam, l.spam_reason, l.in_service_area, l.geocode_status,
-                l.phone_raw, l.phone_valid, l.postal_code,
+                l.phone_raw, l.phone_valid, l.postal_code, l.street,
+                l.email, l.is_owner, l.contact_time_preference, l.message,
+                l.contacted_at, l.disqualify_reason, l.privacy_accepted_at,
                 l.duplicate_of, l.superseded_by,
                 (
                     SELECT o.created_at FROM leads o WHERE o.id = l.duplicate_of
@@ -327,6 +337,107 @@ def _decorate_row(row: dict) -> dict:
         "badges": badges,
         "row_inaktiv": row["status"] in _INAKTIVE_STATUSWERTE,
     }
+
+
+# --- CSV-Export (Konzept §6/§8 K8, CLAUDE.md Regel 8) ---------------------
+# Läuft über dieselben _fetch_leads()/_decorate_row() wie die Liste, damit
+# Filter/Suche/Sortierung zwischen Ansicht und Export nie auseinanderlaufen
+# können (Marco, 2026-08-16: "berücksichtigt den aktuell aktiven Filter und
+# die Suche, nicht immer alles").
+
+_AMPEL_FARBE_LABELS = {"gruen": "Grün", "gelb": "Gelb", "rot": "Rot", "grau": "Grau", "schwarz": "Schwarz"}
+
+_CSV_HEADER = [
+    "Lead-ID", "Erstellt am", "Name", "E-Mail", "Telefon", "Straße", "PLZ", "Ort",
+    "Bundesland", "Eigentümer", "Erreichbarkeit", "Wie gefunden", "Anmerkungen",
+    "Kanal", "Kanal-Quelle", "Status", "Zugewiesen an", "Kontaktiert am",
+    "Disqualifikationsgrund", "Ampel", "Ampel-Grund", "Telefon gültig",
+    "PLZ angegeben", "Geocoding-Status", "Im Einzugsgebiet", "Spam-Verdacht",
+    "Datenschutz akzeptiert am",
+]
+
+
+@router.get("/export.csv")
+def export_leads_csv(request: Request):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    tab = request.query_params.get("tab", _DEFAULT_TAB)
+    if tab not in _TAB_STATUSES:
+        tab = _DEFAULT_TAB
+    show_all = request.query_params.get("alle") == "1"
+    search = (request.query_params.get("q") or "").strip() or None
+    sort_oldest_first = request.query_params.get("sort") != "neueste"
+
+    with get_connection() as conn:
+        rows = _fetch_leads(conn, tab=tab, show_all=show_all, search=search, sort_oldest_first=sort_oldest_first)
+    leads = [_decorate_row(row) for row in rows]
+
+    buffer = io.StringIO()
+    # Excel (Deutschland) erwartet Semikolon als Trennzeichen (CLAUDE.md
+    # Regel 8) - Komma würde bei uns ohnehin mit deutschen Dezimalzahlen
+    # kollidieren, hier aber vor allem: Excel öffnet eine komma-getrennte
+    # Datei auf einem deutschen System ansonsten als eine einzige Spalte.
+    writer = csv.writer(buffer, delimiter=";")
+    writer.writerow(_CSV_HEADER)
+    for lead in leads:
+        writer.writerow(_csv_row(lead))
+
+    # utf-8-sig schreibt die BOM automatisch mit - ohne sie interpretiert
+    # Excel unter Windows die Datei als Systemcodepage statt UTF-8 und
+    # zerlegt jeden Umlaut (CLAUDE.md Regel 8).
+    content = buffer.getvalue().encode("utf-8-sig")
+    filename = f"standort-check-leads-{tab}-{berlin_today_iso()}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _csv_ja_nein(value: bool | None) -> str:
+    return {True: "Ja", False: "Nein"}.get(value, "")
+
+
+def _csv_text(value) -> str:
+    return str(value) if value not in (None, "") else ""
+
+
+def _csv_dt(value) -> str:
+    return format_berlin_datetime(value) if value is not None else ""
+
+
+def _csv_row(lead: dict) -> list[str]:
+    return [
+        str(lead["id"]),
+        _csv_dt(lead["created_at"]),
+        _csv_text(lead["name_raw"]),
+        _csv_text(lead["email"]),
+        _csv_text(lead["phone_raw"]),
+        _csv_text(lead["street"]),
+        _csv_text(lead["postal_code"]),
+        _csv_text(lead["city"]),
+        _csv_text(lead["geo_state"]),
+        _csv_ja_nein(lead["is_owner"]),
+        CONTACT_TIME_LABELS.get(lead["contact_time_preference"], ""),
+        _csv_text(lead["heard_about"]),
+        _csv_text(lead["message"]),
+        CHANNEL_LABELS.get(lead["channel"], _csv_text(lead["channel"])),
+        _csv_text(lead["channel_source"]),
+        lead["status_display"],
+        _csv_text(lead["assigned_to"]),
+        _csv_dt(lead["contacted_at"]),
+        _csv_text(lead["disqualify_reason"]),
+        _AMPEL_FARBE_LABELS.get(lead["ampel_farbe"], lead["ampel_farbe"]),
+        lead["ampel_grund"],
+        _csv_ja_nein(lead["phone_valid"]) if lead["phone_raw"] else "",
+        _csv_ja_nein(lead["postal_code"] is not None),
+        status_label(lead["geocode_status"]),
+        _csv_ja_nein(lead["in_service_area"]),
+        _csv_ja_nein(lead["is_spam"]),
+        _csv_dt(lead["privacy_accepted_at"]),
+    ]
 
 
 # --- Detailansicht (Konzept §6) ------------------------------------------
