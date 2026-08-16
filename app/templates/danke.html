@@ -47,24 +47,34 @@
     a {
       color: var(--focus);
     }
-    .back-link {
-      display: inline-block;
-      margin-top: 1rem;
-      font-size: 0.9rem;
-    }
-    .edit-button {
-      display: inline-block;
+    .button-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
       margin-top: 1.25rem;
-      background: var(--focus);
-      color: #fff;
+    }
+    .btn {
+      display: inline-block;
       text-decoration: none;
       padding: 0.75rem 1.5rem;
       border-radius: 0.5rem;
       font-weight: 600;
       font-size: 0.95rem;
     }
-    .edit-button:hover {
+    .btn-primary {
+      background: var(--focus);
+      color: #fff;
+    }
+    .btn-primary:hover {
       opacity: 0.92;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--focus);
+      border: 1px solid var(--border, #c9c9c9);
+    }
+    .btn-secondary:hover {
+      background: #f2f2f2;
     }
   </style>
 </head>
@@ -74,11 +84,12 @@
     <h1>Vielen Dank für Ihre Anfrage!</h1>
     <p>Wir haben Ihre Angaben erhalten. Unser Team wird sich zeitnah mit Ihnen in Verbindung setzen.</p>
     <p>Falls Sie eine Angabe korrigieren oder ergänzen möchten, etwa wann Sie am besten erreichbar sind, können Sie Ihre Anfrage jederzeit bearbeiten.</p>
-    {% if edit_url %}
-    <a class="edit-button" href="{{ edit_url }}">Anfrage bearbeiten</a>
-    {% endif %}
-    <br>
-    <a class="back-link" href="/">← Zurück zum Formular</a>
+    <div class="button-row">
+      {% if edit_url %}
+      <a class="btn btn-primary" href="{{ edit_url }}">Anfrage bearbeiten</a>
+      {% endif %}
+      <a class="btn btn-secondary" href="/">Neue Anfrage starten</a>
+    </div>
   </main>
 </body>
 </html>
