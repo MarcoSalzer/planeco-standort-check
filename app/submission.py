@@ -129,6 +129,34 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
     raise ValueError(f"Unbekannter DedupCase: {decision.case}")  # pragma: no cover
 
 
+def resolve_current_lead(conn: psycopg.Connection, lead_id: str) -> dict | None:
+    """Folgt der superseded_by-Kette zur aktuell führenden Version eines Leads.
+
+    Für die Vorbefüllung über den signierten Korrektur-Link (Konzept §G):
+    ein Token kann auf einen Lead zeigen, der inzwischen durch eine
+    Korrektur ersetzt wurde - dann soll der AKTUELLE Stand vorbefüllt
+    werden, nicht der veraltete.
+    """
+    current_id = lead_id
+    with conn.cursor(row_factory=dict_row) as cur:
+        for _ in range(50):  # Sicherheitsnetz gegen einen (eigentlich unmöglichen) Zyklus
+            cur.execute(
+                """
+                SELECT id, street, postal_code, city, email, phone_raw, name_raw,
+                       is_owner, contact_time_preference, message, heard_about, superseded_by
+                FROM leads WHERE id = %(id)s
+                """,
+                {"id": current_id},
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            if row["superseded_by"] is None:
+                return row
+            current_id = row["superseded_by"]
+    return None
+
+
 def _merge_with_candidate(
     data: NewLeadData, candidate: ExistingLead
 ) -> tuple[NewLeadData, dict, dict]:

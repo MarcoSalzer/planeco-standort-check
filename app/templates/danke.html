@@ -52,15 +52,32 @@
       margin-top: 1rem;
       font-size: 0.9rem;
     }
+    .edit-button {
+      display: inline-block;
+      margin-top: 1.25rem;
+      background: var(--focus);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .edit-button:hover {
+      opacity: 0.92;
+    }
   </style>
 </head>
 <body>
   <main>
     <div class="checkmark" aria-hidden="true">✓</div>
     <h1>Vielen Dank für Ihre Anfrage!</h1>
-    <p>Wir haben Ihre Angaben erhalten.</p>
-    <p>Unser Team meldet sich in der Regel am nächsten Werktag-Vormittag bei Ihnen.</p>
-    <p>Fällt Ihnen noch etwas ein oder war eine Angabe falsch? Senden Sie das Formular einfach mit den korrigierten Angaben erneut ab — wir übernehmen automatisch den neuesten Stand.</p>
+    <p>Wir haben Ihre Angaben erhalten. Unser Team wird sich zeitnah mit Ihnen in Verbindung setzen.</p>
+    <p>Falls Sie eine Angabe korrigieren oder ergänzen möchten, etwa wann Sie am besten erreichbar sind, können Sie Ihre Anfrage jederzeit bearbeiten.</p>
+    {% if edit_url %}
+    <a class="edit-button" href="{{ edit_url }}">Anfrage bearbeiten</a>
+    {% endif %}
+    <br>
     <a class="back-link" href="/">← Zurück zum Formular</a>
   </main>
 </body>

@@ -170,7 +170,14 @@ create table lead_events (
 ```
 
 Event-Typen (deutsch, s. K8): `erstellt`, `status_geaendert`, `zugewiesen`,
-`mail_gesendet`, `mail_fehlgeschlagen`, `geocodiert`, `erneut_angefragt`, `ersetzt`.
+`mail_gesendet`, `mail_fehlgeschlagen`, `geocodiert`, `erneut_angefragt`, `ersetzt`,
+`kontakt_bekannt` [bei Implementierung ergänzt, 2026-08-15].
+
+`kontakt_bekannt`: F4 (Konzept §4) - gleiche Person, anderes Grundstück - hat in
+§2 keine eigene Speicherung; `duplicate_of`/`superseded_by` decken nur F2/F3 ab.
+Statt einer neuen Spalte trägt der neue Lead ein Event `kontakt_bekannt` mit
+`{"bekannter_lead_id": "..."}` im Payload - reicht fürs Dashboard-Badge "Kontakt
+bekannt" (§6), ohne das bereits eingespielte Schema zu ändern.
 
 **Was das konkret ist — Beispiel.** Ein Lead kommt Montag rein, wird Dienstag von
 Anna angerufen, Mittwoch schickt der Kunde eine korrigierte Telefonnummer.

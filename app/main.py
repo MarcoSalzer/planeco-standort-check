@@ -11,11 +11,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.channel import HEARD_ABOUT_OPTIONS, derive_channel
 from app.core.content_hash import content_hash
+from app.core.edit_token import generate_edit_token, verify_edit_token
 from app.core.normalize import normalize_email, normalize_name, normalize_phone
 from app.core.spam import detect_spam
 from app.core.validation import validate_submission
 from app.db import get_connection
-from app.submission import NewLeadData, persist_submission
+from app.submission import NewLeadData, persist_submission, resolve_current_lead
 
 load_dotenv()
 
@@ -49,9 +50,43 @@ def health() -> JSONResponse:
     return JSONResponse(content={"status": "ok", "db": True})
 
 
+def _is_owner_to_form_value(is_owner: bool | None) -> str:
+    if is_owner is True:
+        return "ja"
+    if is_owner is False:
+        return "nein"
+    return ""
+
+
 @app.get("/")
 def form(request: Request):
     values = _empty_values()
+    is_edit_mode = False
+
+    edit_token = request.query_params.get("k")
+    if edit_token:
+        secret = os.environ.get("EDIT_TOKEN_SECRET")
+        lead_id = verify_edit_token(edit_token, secret) if secret else None
+        if secret is None:
+            logger.warning("EDIT_TOKEN_SECRET nicht gesetzt - Korrektur-Link kann nicht geprüft werden")
+        if lead_id:
+            with get_connection() as conn:
+                current = resolve_current_lead(conn, lead_id)
+            if current:
+                is_edit_mode = True
+                values.update(
+                    street=current["street"] or "",
+                    postal_code=current["postal_code"] or "",
+                    city=current["city"] or "",
+                    email=current["email"] or "",
+                    phone=current["phone_raw"] or "",
+                    name=current["name_raw"] or "",
+                    is_owner=_is_owner_to_form_value(current["is_owner"]),
+                    contact_time_preference=current["contact_time_preference"] or "",
+                    heard_about=current["heard_about"] or "",
+                    message=current["message"] or "",
+                )
+
     values.update(
         utm_source=request.query_params.get("utm_source") or "",
         utm_medium=request.query_params.get("utm_medium") or "",
@@ -66,6 +101,7 @@ def form(request: Request):
     context = {
         "values": values,
         "errors": {},
+        "is_edit_mode": is_edit_mode,
         "submission_token": str(uuid.uuid4()),
         "form_rendered_at": datetime.now(timezone.utc).isoformat(),
         "heard_about_options": HEARD_ABOUT_OPTIONS,
@@ -83,7 +119,9 @@ def datenschutz(request: Request):
 
 @app.get("/danke")
 def danke(request: Request):
-    return templates.TemplateResponse(request=request, name="danke.html", context={})
+    token = request.query_params.get("k")
+    edit_url = f"/?k={token}" if token else None
+    return templates.TemplateResponse(request=request, name="danke.html", context={"edit_url": edit_url})
 
 
 def _parse_is_owner(raw: str | None) -> bool | None:
@@ -118,6 +156,7 @@ async def submit(request: Request):
 
     honeypot_raw = form_data.get("website")
     honeypot_value = honeypot_raw if isinstance(honeypot_raw, str) else None
+    is_edit_mode = form_data.get("is_edit_mode") == "1"
 
     form_rendered_at_raw = form_data.get("form_rendered_at")
     elapsed_seconds = None
@@ -164,6 +203,7 @@ async def submit(request: Request):
         context = {
             "values": values,
             "errors": errors,
+            "is_edit_mode": is_edit_mode,
             "submission_token": str(uuid.uuid4()),
             "form_rendered_at": datetime.now(timezone.utc).isoformat(),
             "heard_about_options": HEARD_ABOUT_OPTIONS,
@@ -243,6 +283,13 @@ async def submit(request: Request):
     )
 
     with get_connection() as conn:
-        persist_submission(conn, data)
+        result = persist_submission(conn, data)
 
-    return RedirectResponse(url="/danke", status_code=303)
+    secret = os.environ.get("EDIT_TOKEN_SECRET")
+    danke_url = "/danke"
+    if secret:
+        danke_url = f"/danke?k={generate_edit_token(result.lead_id, secret)}"
+    else:
+        logger.warning("EDIT_TOKEN_SECRET nicht gesetzt - Danke-Seite ohne Korrektur-Link")
+
+    return RedirectResponse(url=danke_url, status_code=303)
