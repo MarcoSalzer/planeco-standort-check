@@ -201,7 +201,7 @@
       {% endif %}
 
       <div class="field">
-        <label for="name">Name (optional)</label>
+        <label for="name">Name</label>
         <input
           type="text" id="name" name="name" value="{{ values.name }}"
           autocomplete="name" autocapitalize="words">
@@ -217,7 +217,7 @@
       </div>
 
       <div class="field">
-        <label for="phone">Telefon (optional, für schnellere Rückmeldung)</label>
+        <label for="phone">Telefon (für schnellere Rückmeldung)</label>
         <input
           type="tel" id="phone" name="phone" value="{{ values.phone }}"
           autocomplete="tel" inputmode="tel">
@@ -236,7 +236,7 @@
         </div>
 
         <div class="field">
-          <label for="postal_code">PLZ (optional)</label>
+          <label for="postal_code">PLZ</label>
           <input
             type="text" id="postal_code" name="postal_code"
             value="{{ values.postal_code }}" {% if errors.postal_code %}aria-invalid="true" aria-describedby="postal_code-error"{% endif %}
@@ -256,7 +256,7 @@
       </fieldset>
 
       <div class="field">
-        <label>Sind Sie Eigentümer des Grundstücks? (optional)</label>
+        <label>Sind Sie Eigentümer des Grundstücks?</label>
         <div class="radio-group">
           <label class="radio-option">
             <input type="radio" name="is_owner" value="ja" {% if values.is_owner == 'ja' %}checked{% endif %}> Ja
@@ -268,7 +268,7 @@
       </div>
 
       <div class="field">
-        <label for="contact_time_preference">Wann erreichen wir Sie am besten? (optional, für schnellere Rückmeldung)</label>
+        <label for="contact_time_preference">Wann erreichen wir Sie am besten? (für schnellere Rückmeldung)</label>
         <select id="contact_time_preference" name="contact_time_preference">
           <option value="" {% if values.contact_time_preference == '' %}selected{% endif %}>Keine Angabe</option>
           <option value="vormittags" {% if values.contact_time_preference == 'vormittags' %}selected{% endif %}>Vormittags</option>
@@ -280,7 +280,7 @@
       </div>
 
       <div class="field">
-        <label for="heard_about">Wie sind Sie auf uns aufmerksam geworden? (optional)</label>
+        <label for="heard_about">Wie sind Sie auf uns aufmerksam geworden?</label>
         <select id="heard_about" name="heard_about">
           <option value="" {% if values.heard_about == '' %}selected{% endif %}>Keine Angabe</option>
           {% for option in heard_about_options %}
@@ -290,7 +290,7 @@
       </div>
 
       <div class="field">
-        <label for="message">Anmerkungen oder Fragen (optional)</label>
+        <label for="message">Anmerkungen oder Fragen</label>
         <textarea id="message" name="message">{{ values.message }}</textarea>
       </div>
 
