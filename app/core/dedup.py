@@ -47,6 +47,7 @@ class ExistingLead:
     status: str
     assigned_to: str | None
     contacted_at: datetime | None
+    lead_nummer: int
 
 
 @dataclass(frozen=True)

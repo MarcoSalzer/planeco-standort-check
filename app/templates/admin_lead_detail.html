@@ -71,6 +71,16 @@
     }
 
     .summary { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+    .lead-nummer {
+      display: inline-block;
+      margin: 0 0 0.4rem;
+      padding: 0.15rem 0.55rem;
+      background: var(--banner-bg);
+      border-radius: 0.35rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
     .summary h2 { margin: 0 0 0.3rem; font-size: 1.15rem; }
     .summary .status-line { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
     .ampel-line { display: flex; align-items: center; font-size: 0.95rem; }
@@ -198,6 +208,7 @@
   <div class="page">
     <div class="card summary">
       <div>
+        <p class="lead-nummer">Lead #{{ lead.lead_nummer if lead.lead_nummer is not none else "–" }}</p>
         <h2>{{ lead.name or "(ohne Namen)" }}</h2>
         <p class="status-line">Status: {{ status_display }} · Erstellt am {{ created_at_display }}</p>
         <div class="ampel-line">

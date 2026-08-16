@@ -109,14 +109,21 @@ def persist_submission(
         # trotzdem ein ganz normaler eigenständiger NEU-Insert, nur mit
         # status='spam' statt 'neu'.
         status = "spam" if data.is_spam else "neu"
-        new_id = _insert_lead(conn, data, duplicate_of=None, status=status, assigned_to=None, contacted_at=None)
+        # NEU = ein neuer echter Vorgang -> neue Lead-Nummer (Marco, 2026-08-16).
+        new_id = _insert_lead(
+            conn, data, duplicate_of=None, status=status, assigned_to=None, contacted_at=None,
+            lead_nummer=_next_lead_nummer(conn),
+        )
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
         _log_unexpected_fields(conn, new_id, unexpected_fields)
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
     if decision.case == DedupCase.F2_DUPLIKAT:
+        # F2 = identische Wiederholung desselben Vorgangs -> Nummer erben,
+        # sonst sähe eine bloße Doppelanfrage wie ein zweiter Vorgang aus.
         new_id = _insert_lead(
-            conn, data, duplicate_of=candidate.id, status="duplikat", assigned_to=None, contacted_at=None
+            conn, data, duplicate_of=candidate.id, status="duplikat", assigned_to=None, contacted_at=None,
+            lead_nummer=candidate.lead_nummer,
         )
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
         _log_unexpected_fields(conn, new_id, unexpected_fields)
@@ -125,6 +132,8 @@ def persist_submission(
 
     if decision.case == DedupCase.F3_ERSETZT:
         merged_data, changed_fields, merged_fields_ = _merge_with_candidate(data, candidate)
+        # F3 = Korrektur desselben Vorgangs -> Nummer erben (Marco, 2026-08-16:
+        # "damit eine Korrektur nicht wie eine zweite Anfrage aussieht").
         new_id = _insert_lead(
             conn,
             merged_data,
@@ -132,6 +141,7 @@ def persist_submission(
             status=candidate.status,
             assigned_to=candidate.assigned_to,
             contacted_at=candidate.contacted_at,
+            lead_nummer=candidate.lead_nummer,
         )
         _supersede(conn, old_id=candidate.id, new_id=new_id)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular", "korrektur_von": candidate.id})
@@ -145,7 +155,12 @@ def persist_submission(
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=merged_data)
 
     if decision.case == DedupCase.F4_KONTAKT_BEKANNT:
-        new_id = _insert_lead(conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None)
+        # F4 = bekannte Person, aber ANDERES Grundstück -> eigener, neuer
+        # Vorgang trotz bekanntem Kontakt, also neue Lead-Nummer.
+        new_id = _insert_lead(
+            conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None,
+            lead_nummer=_next_lead_nummer(conn),
+        )
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
         _log_unexpected_fields(conn, new_id, unexpected_fields)
         _insert_event(conn, new_id, "kontakt_bekannt", {"bekannter_lead_id": candidate.id})
@@ -273,7 +288,7 @@ def _find_dedup_candidate(
             """
             SELECT id, content_hash, email, email_normalized, phone_raw, phone_e164,
                    street, postal_code, city, name_raw, is_owner, contact_time_preference,
-                   message, heard_about, status, assigned_to, contacted_at
+                   message, heard_about, status, assigned_to, contacted_at, lead_nummer
             FROM leads
             WHERE status NOT IN ('duplikat', 'ersetzt', 'spam')
               AND (
@@ -297,6 +312,15 @@ def _find_dedup_candidate(
     return ExistingLead(id=str(row["id"]), **{k: v for k, v in row.items() if k != "id"})
 
 
+def _next_lead_nummer(conn: psycopg.Connection) -> int:
+    """Neue Nummer für einen echten NEUEN Vorgang (NEU/F4). F2/F3 rufen das
+    NICHT auf, sondern erben candidate.lead_nummer - eine Postgres-Sequenz
+    statt max()+1, damit die Vergabe bei gleichzeitigen Submits eindeutig
+    bleibt (Marco, 2026-08-16)."""
+    row = conn.execute("SELECT nextval('lead_nummer_seq')").fetchone()
+    return row[0]
+
+
 def _insert_lead(
     conn: psycopg.Connection,
     data: NewLeadData,
@@ -305,6 +329,7 @@ def _insert_lead(
     status: str,
     assigned_to: str | None,
     contacted_at: datetime | None,
+    lead_nummer: int,
 ) -> str:
     row = conn.execute(
         """
@@ -316,7 +341,7 @@ def _insert_lead(
             utm_source, utm_medium, utm_campaign, utm_term, utm_content,
             gclid, fbclid, referrer, landing_page,
             channel, channel_source, content_hash, duplicate_of,
-            status, assigned_to, contacted_at,
+            status, assigned_to, contacted_at, lead_nummer,
             is_spam, spam_reason, privacy_accepted_at
         ) VALUES (
             %(submission_token)s, %(name)s, %(name_raw)s, %(name_normalized)s,
@@ -326,7 +351,7 @@ def _insert_lead(
             %(utm_source)s, %(utm_medium)s, %(utm_campaign)s, %(utm_term)s, %(utm_content)s,
             %(gclid)s, %(fbclid)s, %(referrer)s, %(landing_page)s,
             %(channel)s, %(channel_source)s, %(content_hash)s, %(duplicate_of)s,
-            %(status)s, %(assigned_to)s, %(contacted_at)s,
+            %(status)s, %(assigned_to)s, %(contacted_at)s, %(lead_nummer)s,
             %(is_spam)s, %(spam_reason)s, %(privacy_accepted_at)s
         )
         RETURNING id
@@ -337,6 +362,7 @@ def _insert_lead(
             "status": status,
             "assigned_to": assigned_to,
             "contacted_at": contacted_at,
+            "lead_nummer": lead_nummer,
         },
     ).fetchone()
     return str(row[0])

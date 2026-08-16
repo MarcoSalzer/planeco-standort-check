@@ -22,6 +22,7 @@ def _candidate(**overrides) -> ExistingLead:
         status="kontaktiert",
         assigned_to="anna",
         contacted_at=None,
+        lead_nummer=1,
     )
     defaults.update(overrides)
     return ExistingLead(**defaults)

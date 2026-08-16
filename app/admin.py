@@ -324,7 +324,7 @@ def _fetch_leads(
         cur.execute(
             f"""
             SELECT
-                l.id, l.created_at, l.name, l.name_raw, l.city, l.geo_state, l.geo_country,
+                l.id, l.lead_nummer, l.created_at, l.name, l.name_raw, l.city, l.geo_state, l.geo_country,
                 l.channel, l.channel_source, l.heard_about, l.status, l.assigned_to,
                 l.is_spam, l.spam_reason, l.in_service_area, l.geocode_status,
                 l.phone_raw, l.phone_valid, l.postal_code, l.street,
@@ -484,7 +484,7 @@ def _decorate_row(conn: psycopg.Connection, row: dict) -> dict:
 _AMPEL_FARBE_LABELS = {"gruen": "Grün", "gelb": "Gelb", "rot": "Rot", "grau": "Grau", "schwarz": "Schwarz"}
 
 _CSV_HEADER = [
-    "Lead-ID", "Erstellt am", "Name", "E-Mail", "Telefon", "Straße", "PLZ", "Ort",
+    "Lead-Nummer", "Lead-ID", "Erstellt am", "Name", "E-Mail", "Telefon", "Straße", "PLZ", "Ort",
     "Bundesland", "Eigentümer", "Erreichbarkeit", "Wie gefunden", "Anmerkungen",
     "Kanal", "Kanal-Quelle", "Status", "Zugewiesen an", "Kontaktiert am",
     "Disqualifikationsgrund", "Ampel", "Ampel-Grund", "Telefon gültig",
@@ -573,6 +573,7 @@ def _csv_dt(value) -> str:
 
 def _csv_row(lead: dict) -> list[str]:
     return [
+        _csv_text(lead["lead_nummer"]),
         str(lead["id"]),
         _csv_dt(lead["created_at"]),
         _csv_text(lead["name_raw"]),

@@ -374,6 +374,7 @@
       <table class="leads">
         <thead>
           <tr>
+            <th>Lead-Nr.</th>
             <th>Datum</th>
             <th>Name</th>
             <th>Ort</th>
@@ -388,6 +389,7 @@
         <tbody>
           {% for lead in leads %}
           <tr class="{{ 'row-inaktiv' if lead.row_inaktiv else '' }}">
+            <td>{{ lead.lead_nummer if lead.lead_nummer is not none else "–" }}</td>
             <td>{{ lead.created_at_display }}</td>
             <td>
               <a href="/admin/leads/{{ lead.id }}">{{ lead.name or "(ohne Namen)" }}</a>

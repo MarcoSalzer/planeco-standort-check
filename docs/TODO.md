@@ -3,39 +3,50 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (7) — für den Einstieg in eine neue Session
+## Stand 16.08. abends (8) — für den Einstieg in eine neue Session
 
 Phase 1, Phase 2 UND Phase 3 sind vollständig fertig und committet (siehe
 `git log`). Marco hat sechs echte Testanfragen über das Formular im
-Browser durchlaufen lassen — erster echter Browser-Test der ganzen
-Session, Ergebnisse im Dashboard korrekt. Danach sieben Nacharbeiten
-durchgeführt (alle committet):
+Browser durchlaufen lassen (u.a. "Kai Ruthenberg", "Jörg Klöpper" - Jörg
+hat dabei real eine F3-Korrektur ausgelöst) und danach das komplette
+Dashboard im Browser durchgeklickt - beides funktioniert. Zwei weitere
+Nacharbeitsrunden folgten (alle committet):
 
-1. Formular-Feldreihenfolge: Name/E-Mail/Telefon vor Adresse.
-2. `heard_about`-Fund repariert: unbekannter Wert -> "keine Angabe" +
-   Event `unerwarteter_feldwert` (kein 422, anders als
-   `contact_time_preference`).
-3. Attributionsfelder-Fund repariert: leerer String -> NULL für alle neun
-   Felder, 15 Bestandszeilen per Migration 0005 bereinigt.
-4. Beide Funde in docs/FUNDE.md nachgetragen.
-5. Sortierung: Neu/Bearbeitung = älteste zuerst (Warteschlange),
-   Erledigt/Alle = neueste zuerst (Nachschlagewerk), beides per
-   `?sort=aeltest|neueste` explizit umschaltbar und sichtbar beschriftet;
-   Tab-Wechsel ohne explizite Wahl behält NICHT die vorherige Sortierung
-   bei, sondern nutzt den Tab-eigenen Default.
-6. Zusammengehörige Anfragen: Badge "Teil einer Korrekturkette/
-   Duplikatgruppe: Anfrage X von Y" pro Lead (`_kette_info`/
-   `_duplikatgruppe_info` in app/admin.py).
-7. Zwei Dropdown-Filter (Kanal, Bundesland) über der Liste, kombinierbar
-   mit Suche/Tab/Sortierung, CSV-Export respektiert sie mit.
+**Runde 1 (7 Punkte):** Formular-Feldreihenfolge; heard_about-Fund
+repariert (unbekannter Wert -> "keine Angabe" + Event
+`unerwarteter_feldwert`, kein 422); Attributionsfelder-Fund repariert
+(leer -> NULL, Migration 0005); beide Funde in docs/FUNDE.md; Sortierung
+mit Tab-eigenen Defaults (Neu/Bearbeitung älteste zuerst, Erledigt/Alle
+neueste zuerst) sichtbar beschriftet und umschaltbar; Zusammengehörigkeits-
+Badges "Teil einer Korrekturkette/Duplikatgruppe: Anfrage X von Y"; zwei
+Dropdown-Filter (Kanal, Bundesland).
 
-**Nächster Schritt: Phase 4 (Geocoding)** — Nominatim-Integration,
-Ampel-Funktion existiert bereits (`app/core/ampel.py`, aus Phase 4
-vorgezogen), Auslandspfad, Bundesland→Landesbauordnung-Mapping,
-GitHub-Actions-Cron, `/admin/retry`. Nur das ursprüngliche Formular +
-Login wurden bislang im Browser getestet, der Rest (Liste/Detail/
-Aktionen/CSV/Auswertung inkl. der sieben Nacharbeiten) nur live per
-curl/httpx/testlauf.py gegen echte Supabase-Daten.
+**Runde 2 (3 Punkte, 2 davon umgesetzt):**
+1. Formularmarkierung: nur die 3 Pflichtfelder (Adresse/E-Mail/
+   Datenschutz) tragen noch ein Sternchen, "(optional)" ist überall weg,
+   Nutzenhinweise (z.B. Telefon "für schnellere Rückmeldung") bleiben
+   ohne das Wort "optional".
+2. Lead-Nummer: fortlaufende, menschenlesbare Nummer PRO VORGANG (nicht
+   pro Zeile) über `lead_nummer_seq` (Migration 0006). NEU/F4 verbrauchen
+   eine neue Nummer, F2/F3 erben `candidate.lead_nummer`
+   (`app/submission.py`). Bestand mit `scripts/backfill_lead_nummer.py`
+   nachnummeriert - Union-Find über duplicate_of UND superseded_by
+   gemeinsam, weil ein Vorgang beide Kantentypen gemischt haben kann
+   (live gefunden: ein 5-zeiliger Cluster aus einer 3-stufigen
+   Korrekturkette PLUS zwei F2-Duplikaten am ersten Glied). Sichtbar in
+   Liste (erste Spalte), Detailansicht ("Lead #N") und CSV (erste
+   Spalte). 19/19 Bestandszeilen erfolgreich nummeriert, live verifiziert
+   über alle vier Dedup-Fälle.
+3. **Nicht jetzt** (Marco: "nach Phase 4"): Kanal-/Bundesland-Dropdowns
+   durch Spalten-Header-Filter ersetzen - als Punkt in der Phase-3-
+   Checkliste unten vermerkt, nicht gebaut.
+
+**Nächster Schritt: Phase 4 (Geocoding), Block (a) - Nominatim-Client.**
+Marco hat die Reihenfolge a-e vorgegeben und ausdrücklich "halt nach
+jedem Block an" gesagt - nach Block (a) also anhalten und nicht
+selbstständig zu (b) Retry-Endpoint weitergehen. Ampel-Funktion existiert
+bereits (`app/core/ampel.py`, aus Phase 4 vorgezogen). Auslandspfad +
+Landesbauordnung-Zuordnung kommen laut Marco separat NACH Block (a)-(e).
 
 **Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,
 `MAX_EMAILS_PER_DAY=50`) steht nach dem intensiven Testen heute bei über 80
