@@ -137,6 +137,24 @@
       font-size: 0.85rem;
       margin: -0.75rem 0 1.25rem;
     }
+    .error-summary {
+      background: #fdecea;
+      border: 1px solid var(--error);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      margin: 0 0 1.25rem;
+      color: var(--error);
+      font-size: 0.92rem;
+    }
+    .field-error {
+      color: var(--error);
+      font-size: 0.85rem;
+      margin: 0.35rem 0 0;
+    }
+    .field input[aria-invalid="true"],
+    .field select[aria-invalid="true"] {
+      border-color: var(--error);
+    }
     footer {
       max-width: 34rem;
       margin: 1.5rem auto 0;
@@ -171,6 +189,10 @@
     <form method="post" action="/submit" novalidate>
       <p class="required-note">* Pflichtfeld</p>
 
+      {% if errors %}
+      <p class="error-summary">Bitte prüfen Sie Ihre Eingaben — einige Angaben fehlen oder sind ungültig.</p>
+      {% endif %}
+
       <fieldset>
         <legend>Adresse des Grundstücks</legend>
 
@@ -178,22 +200,28 @@
           <label for="street">Straße und Hausnummer *</label>
           <input
             type="text" id="street" name="street" required
+            value="{{ values.street }}" {% if errors.street %}aria-invalid="true" aria-describedby="street-error"{% endif %}
             autocomplete="street-address" autocapitalize="words">
+          {% if errors.street %}<p class="field-error" id="street-error">{{ errors.street }}</p>{% endif %}
         </div>
 
         <div class="field">
           <label for="postal_code">PLZ (optional)</label>
           <input
             type="text" id="postal_code" name="postal_code"
+            value="{{ values.postal_code }}" {% if errors.postal_code %}aria-invalid="true" aria-describedby="postal_code-error"{% endif %}
             inputmode="numeric" pattern="\d{5}" maxlength="5"
             autocomplete="postal-code">
+          {% if errors.postal_code %}<p class="field-error" id="postal_code-error">{{ errors.postal_code }}</p>{% endif %}
         </div>
 
         <div class="field">
           <label for="city">Ort *</label>
           <input
             type="text" id="city" name="city" required
+            value="{{ values.city }}" {% if errors.city %}aria-invalid="true" aria-describedby="city-error"{% endif %}
             autocomplete="address-level2" autocapitalize="words">
+          {% if errors.city %}<p class="field-error" id="city-error">{{ errors.city }}</p>{% endif %}
         </div>
       </fieldset>
 
@@ -201,20 +229,22 @@
         <label for="email">E-Mail-Adresse *</label>
         <input
           type="email" id="email" name="email" required
+          value="{{ values.email }}" {% if errors.email %}aria-invalid="true" aria-describedby="email-error"{% endif %}
           autocomplete="email" inputmode="email">
+        {% if errors.email %}<p class="field-error" id="email-error">{{ errors.email }}</p>{% endif %}
       </div>
 
       <div class="field">
         <label for="phone">Telefon (optional, für schnellere Rückmeldung)</label>
         <input
-          type="tel" id="phone" name="phone"
+          type="tel" id="phone" name="phone" value="{{ values.phone }}"
           autocomplete="tel" inputmode="tel">
       </div>
 
       <div class="field">
         <label for="name">Name (optional)</label>
         <input
-          type="text" id="name" name="name"
+          type="text" id="name" name="name" value="{{ values.name }}"
           autocomplete="name" autocapitalize="words">
       </div>
 
@@ -222,10 +252,10 @@
         <label>Sind Sie Eigentümer des Grundstücks? (optional)</label>
         <div class="radio-group">
           <label class="radio-option">
-            <input type="radio" name="is_owner" value="ja"> Ja
+            <input type="radio" name="is_owner" value="ja" {% if values.is_owner == 'ja' %}checked{% endif %}> Ja
           </label>
           <label class="radio-option">
-            <input type="radio" name="is_owner" value="nein"> Nein
+            <input type="radio" name="is_owner" value="nein" {% if values.is_owner == 'nein' %}checked{% endif %}> Nein
           </label>
         </div>
       </div>
@@ -233,33 +263,35 @@
       <div class="field">
         <label for="contact_time_preference">Wann erreichen wir Sie am besten? (optional, für schnellere Rückmeldung)</label>
         <select id="contact_time_preference" name="contact_time_preference">
-          <option value="">Keine Angabe</option>
-          <option value="vormittags">Vormittags</option>
-          <option value="nachmittags">Nachmittags</option>
-          <option value="flexibel">Flexibel</option>
+          <option value="" {% if values.contact_time_preference == '' %}selected{% endif %}>Keine Angabe</option>
+          <option value="vormittags" {% if values.contact_time_preference == 'vormittags' %}selected{% endif %}>Vormittags</option>
+          <option value="nachmittags" {% if values.contact_time_preference == 'nachmittags' %}selected{% endif %}>Nachmittags</option>
+          <option value="flexibel" {% if values.contact_time_preference == 'flexibel' %}selected{% endif %}>Flexibel</option>
         </select>
+        {% if errors.contact_time_preference %}<p class="field-error">{{ errors.contact_time_preference }}</p>{% endif %}
       </div>
 
       <div class="field">
         <label for="heard_about">Wie sind Sie auf uns aufmerksam geworden? (optional)</label>
         <select id="heard_about" name="heard_about">
-          <option value="">Keine Angabe</option>
+          <option value="" {% if values.heard_about == '' %}selected{% endif %}>Keine Angabe</option>
           {% for option in heard_about_options %}
-          <option value="{{ option }}">{{ option }}</option>
+          <option value="{{ option }}" {% if values.heard_about == option %}selected{% endif %}>{{ option }}</option>
           {% endfor %}
         </select>
       </div>
 
       <div class="field">
         <label for="message">Anmerkungen oder Fragen (optional)</label>
-        <textarea id="message" name="message"></textarea>
+        <textarea id="message" name="message">{{ values.message }}</textarea>
       </div>
 
       <div class="field">
         <label class="checkbox-field">
-          <input type="checkbox" id="privacy_accepted" name="privacy_accepted" required>
+          <input type="checkbox" id="privacy_accepted" name="privacy_accepted" required {% if values.privacy_accepted %}checked{% endif %}>
           <span>Ich habe die <a href="/datenschutz" target="_blank" rel="noopener noreferrer">Datenschutzerklärung</a> gelesen und akzeptiere sie. *</span>
         </label>
+        {% if errors.privacy_accepted %}<p class="field-error">{{ errors.privacy_accepted }}</p>{% endif %}
       </div>
 
       <!-- Honeypot: fuer Menschen unsichtbar per CSS, kein type="hidden" -->
@@ -269,15 +301,15 @@
       </div>
 
       <!-- Hidden Fields: Attribution + Anti-Spam -->
-      <input type="hidden" name="utm_source" value="{{ utm_source or '' }}">
-      <input type="hidden" name="utm_medium" value="{{ utm_medium or '' }}">
-      <input type="hidden" name="utm_campaign" value="{{ utm_campaign or '' }}">
-      <input type="hidden" name="utm_term" value="{{ utm_term or '' }}">
-      <input type="hidden" name="utm_content" value="{{ utm_content or '' }}">
-      <input type="hidden" name="gclid" value="{{ gclid or '' }}">
-      <input type="hidden" name="fbclid" value="{{ fbclid or '' }}">
-      <input type="hidden" name="referrer" value="{{ referrer or '' }}">
-      <input type="hidden" name="landing_page" value="{{ landing_page }}">
+      <input type="hidden" name="utm_source" value="{{ values.utm_source }}">
+      <input type="hidden" name="utm_medium" value="{{ values.utm_medium }}">
+      <input type="hidden" name="utm_campaign" value="{{ values.utm_campaign }}">
+      <input type="hidden" name="utm_term" value="{{ values.utm_term }}">
+      <input type="hidden" name="utm_content" value="{{ values.utm_content }}">
+      <input type="hidden" name="gclid" value="{{ values.gclid }}">
+      <input type="hidden" name="fbclid" value="{{ values.fbclid }}">
+      <input type="hidden" name="referrer" value="{{ values.referrer }}">
+      <input type="hidden" name="landing_page" value="{{ values.landing_page }}">
       <input type="hidden" name="submission_token" value="{{ submission_token }}">
       <input type="hidden" name="form_rendered_at" value="{{ form_rendered_at }}">
 
