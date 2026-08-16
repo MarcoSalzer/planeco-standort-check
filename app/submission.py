@@ -60,6 +60,7 @@ class NewLeadData:
 class SubmissionResult:
     lead_id: str
     case: DedupCase
+    final_data: "NewLeadData | None"  # None nur bei F1 - kein neuer Datensatz
 
 
 def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> SubmissionResult:
@@ -85,12 +86,12 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
     )
 
     if decision.case == DedupCase.F1_TECHNISCHE_DOPPLUNG:
-        return SubmissionResult(lead_id=existing_id, case=decision.case)
+        return SubmissionResult(lead_id=existing_id, case=decision.case, final_data=None)
 
     if decision.case == DedupCase.NEU:
         new_id = _insert_lead(conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
-        return SubmissionResult(lead_id=new_id, case=decision.case)
+        return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
     if decision.case == DedupCase.F2_DUPLIKAT:
         new_id = _insert_lead(
@@ -98,7 +99,7 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
         )
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
         _insert_event(conn, candidate.id, "erneut_angefragt", {"neuer_lead_id": new_id})
-        return SubmissionResult(lead_id=new_id, case=decision.case)
+        return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
     if decision.case == DedupCase.F3_ERSETZT:
         merged_data, changed_fields, merged_fields_ = _merge_with_candidate(data, candidate)
@@ -118,13 +119,13 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
             "ersetzt",
             {"changed_fields": changed_fields, "merged_fields": merged_fields_, "neuer_lead_id": new_id},
         )
-        return SubmissionResult(lead_id=new_id, case=decision.case)
+        return SubmissionResult(lead_id=new_id, case=decision.case, final_data=merged_data)
 
     if decision.case == DedupCase.F4_KONTAKT_BEKANNT:
         new_id = _insert_lead(conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
         _insert_event(conn, new_id, "kontakt_bekannt", {"bekannter_lead_id": candidate.id})
-        return SubmissionResult(lead_id=new_id, case=decision.case)
+        return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
     raise ValueError(f"Unbekannter DedupCase: {decision.case}")  # pragma: no cover
 

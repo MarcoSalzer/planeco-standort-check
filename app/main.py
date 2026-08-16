@@ -5,20 +5,32 @@ import uuid
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 
-from app.core.channel import HEARD_ABOUT_OPTIONS, derive_channel
-from app.core.content_hash import content_hash
-from app.core.edit_token import generate_edit_token, verify_edit_token
-from app.core.normalize import normalize_email, normalize_name, normalize_phone
-from app.core.spam import detect_spam
-from app.core.validation import validate_submission
-from app.db import get_connection
-from app.submission import NewLeadData, persist_submission, resolve_current_lead
-
+# Muss vor jedem app.*-Import laufen, der transitiv app.config importiert
+# (app.mail -> app.config liest MAX_EMAILS_PER_DAY etc. beim Modul-Import
+# sofort aus os.environ - ohne load_dotenv() vorher schlägt der Import fehl,
+# selbst wenn .env die Werte enthält).
 load_dotenv()
+
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
+from fastapi.templating import Jinja2Templates  # noqa: E402
+
+from app.core.channel import HEARD_ABOUT_OPTIONS, derive_channel  # noqa: E402
+from app.core.content_hash import content_hash  # noqa: E402
+from app.core.dedup import DedupCase  # noqa: E402
+from app.core.edit_token import generate_edit_token, verify_edit_token  # noqa: E402
+from app.core.normalize import normalize_email, normalize_name, normalize_phone  # noqa: E402
+from app.core.spam import detect_spam  # noqa: E402
+from app.core.validation import validate_submission  # noqa: E402
+from app.db import get_connection  # noqa: E402
+from app.mail import send_confirmation_email  # noqa: E402
+from app.submission import NewLeadData, persist_submission, resolve_current_lead  # noqa: E402
+
+# Ohne das bleibt der Root-Logger auf WARNING (Python-Default) und
+# DRY_RUN_EMAIL-Log-Ausgaben (app.mail.dry_run, Level INFO) verschwinden
+# spurlos - genau die Ausgabe, die zur Prüfung eines Dry-Runs gedacht ist.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +296,17 @@ async def submit(request: Request):
 
     with get_connection() as conn:
         result = persist_submission(conn, data)
+
+    if result.case != DedupCase.F1_TECHNISCHE_DOPPLUNG:
+        try:
+            with get_connection() as conn:
+                send_confirmation_email(conn, result.lead_id, result.final_data, str(request.base_url))
+        except Exception:
+            # Nebenwirkung darf den Submit nie zum Scheitern bringen (CLAUDE.md
+            # Regel 2). send_confirmation_email fängt Brevo-/Netzwerkfehler
+            # bereits selbst ab - dieser Fang ist nur das zusätzliche Netz für
+            # alles andere (z.B. ein DB-Fehler beim Status-Update selbst).
+            logger.exception("Bestätigungsmail-Schritt fehlgeschlagen für Lead %s", result.lead_id)
 
     secret = os.environ.get("EDIT_TOKEN_SECRET")
     danke_url = "/danke"

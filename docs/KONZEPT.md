@@ -154,8 +154,18 @@ create index on leads (phone_e164);
 create index on leads (content_hash);
 ```
 
-`email_status='skipped'`: für duplicate-Einträge, falls Mail bewusst nicht gesendet
-wird — aktuell wird immer gesendet (§4), der Wert existiert für Spam-Fälle.
+`email_status='uebersprungen'` [umbenannt von `'skipped'` bei Implementierung,
+2026-08-16, Migration `0003_email_status_uebersprungen.sql` — `'skipped'` war ein
+Übernahme-Fehler aus dem englischen Wortlaut hier im Fließtext, K8 verlangt
+deutsche Statuswerte]: für Spam-Fälle, bei denen bewusst kein Versandversuch
+unternommen wird (§E). Für duplicate-Einträge nicht relevant — aktuell wird
+immer gesendet (§4).
+
+`email_status='simuliert'` [bei Implementierung ergänzt, 2026-08-15, Migration
+`0002_email_status_simuliert.sql`]: für `DRY_RUN_EMAIL=true`. Läuft die komplette
+Mail-Logik (Statusfelder, Events, Tageslimit-Zähler) durch, nur der echte
+Brevo-Aufruf unterbleibt — ohne eigenen Wert wäre ein Dry-Run von einem echten
+Versand (`gesendet`) nicht unterscheidbar.
 
 ### `lead_events` (append-only)
 
