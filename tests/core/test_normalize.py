@@ -1,6 +1,11 @@
 import pytest
 
-from app.core.normalize import normalize_email, normalize_name, normalize_phone
+from app.core.normalize import (
+    normalize_email,
+    normalize_heard_about,
+    normalize_name,
+    normalize_phone,
+)
 
 
 @pytest.mark.parametrize(
@@ -71,3 +76,27 @@ def test_normalize_name(raw, expected_name, expected_normalized):
     name, was_normalized = normalize_name(raw)
     assert name == expected_name
     assert was_normalized is expected_normalized
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["Google-Suche", "Google-Anzeige", "Facebook oder Instagram", "Empfehlung", "Sonstiges"],
+)
+def test_normalize_heard_about_bekannte_option_bleibt_unangetastet(raw):
+    value, unerwartet = normalize_heard_about(raw)
+    assert value == raw
+    assert unerwartet is False
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_normalize_heard_about_keine_angabe_ist_kein_unerwarteter_wert(raw):
+    value, unerwartet = normalize_heard_about(raw)
+    assert value is None
+    assert unerwartet is False
+
+
+@pytest.mark.parametrize("raw", ["TikTok-Anzeige", "google-suche", "Empfehlungxyz"])
+def test_normalize_heard_about_unbekannter_wert_wird_zu_keine_angabe(raw):
+    value, unerwartet = normalize_heard_about(raw)
+    assert value is None
+    assert unerwartet is True

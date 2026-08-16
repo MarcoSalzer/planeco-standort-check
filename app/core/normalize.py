@@ -6,6 +6,8 @@ Funktionen liefern nur den (ggf. unveränderten) normalisierten Wert.
 """
 import re
 
+from app.core.channel import HEARD_ABOUT_OPTIONS
+
 _PHONE_SEPARATORS = re.compile(r"[\s()/.-]+")
 _PHONE_SHAPE = re.compile(r"\+\d{8,15}")
 
@@ -87,3 +89,22 @@ def _capitalize_segment(segment: str) -> str:
         before, _, after = segment.partition("'")
         return f"{before.capitalize()}'{after.capitalize()}"
     return segment.capitalize()
+
+
+def normalize_heard_about(raw: str | None) -> tuple[str | None, bool]:
+    """Prüft gegen HEARD_ABOUT_OPTIONS (Konzept §3.2), analog zu
+    contact_time_preference - aber anders als dort: kein 422. Ein Wert kann
+    hier nur bei einem direkten POST unter der HTML-Auswahl vorbeikommen
+    (die <select>-Optionen sind identisch mit HEARD_ABOUT_OPTIONS), das ist
+    kein Nutzerfehler, der die ganze Anfrage verdient, sondern etwas, das
+    im Statusfeld/Event festgehalten gehört (CLAUDE.md Regel 3) statt die
+    Anfrage abzulehnen oder den Wert zu erraten (Regel 12). Der Aufrufer
+    schreibt bei True ein Event 'unerwarteter_feldwert' und speichert None
+    statt des unbekannten Rohwerts.
+    """
+    if not raw or not raw.strip():
+        return None, False
+    stripped = raw.strip()
+    if stripped in HEARD_ABOUT_OPTIONS:
+        return stripped, False
+    return None, True

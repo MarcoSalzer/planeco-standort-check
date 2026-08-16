@@ -34,3 +34,29 @@ Spam/Dedup-Fix bei `'neu'` hängengeblieben war (obwohl `is_spam=true`), war
 eine Freigabe über genau diesen Status also keine *Änderung*, und `is_spam`
 blieb fälschlich `true`. Aufgefallen erst beim Live-Test gegen einen echten
 solchen Alt-Lead aus der Datenbank, nicht beim Schreiben des Codes selbst.
+
+## heard_about ohne Server-Validierung (`app/core/validation.py`)
+
+`validate_submission()` prüfte `contact_time_preference` gegen eine feste
+Werteliste, `heard_about` trotz identisch fester Optionsliste im Formular
+aber gar nicht — ein direkter POST mit einem beliebigen Wert ging klaglos
+durch und landete unverändert in der Spalte. Aufgefallen erst beim
+systematischen Testlauf über Randfälle (`scripts/testlauf.py`,
+`docs/TESTLAUF.md`), nicht beim Schreiben von `validate_submission()`
+selbst, wo die Asymmetrie zwischen den beiden gleich aussehenden
+Select-Feldern nicht auffiel. Behoben: unbekannter Wert wird als „keine
+Angabe" behandelt statt abgewiesen, Rohwert bleibt im Event
+`unerwarteter_feldwert` erhalten (`app/core/normalize.py`,
+`normalize_heard_about`).
+
+## Leere Strings statt NULL in den Attributionsfeldern (`app/main.py`)
+
+`heard_about`/`phone`/`name` wurden beim Submit explizit von leerem String
+auf `None` normalisiert, die neun Attributionsfelder (`utm_*`, `gclid`,
+`fbclid`, `referrer`, `landing_page`) nicht — das Hidden-Formularfeld
+sendet bei fehlendem UTM-Parameter `value=""` statt gar keinen Wert.
+Aufgefallen erst beim Bauen des Auswertungs-Tabs, wo `''` und `NULL` als
+zwei optisch identische, aber tatsächlich getrennte „(keine Angabe)"-
+Gruppen in derselben Auswertung erschienen, nicht beim Schreiben von
+`main.py`s Formular-Parsing selbst. 15 betroffene Bestandszeilen mit
+`migrations/0005_null_statt_leerstring_attribution.sql` bereinigt.

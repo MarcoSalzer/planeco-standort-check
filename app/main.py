@@ -19,7 +19,12 @@ from app.core.channel import HEARD_ABOUT_OPTIONS, derive_channel  # noqa: E402
 from app.core.content_hash import content_hash  # noqa: E402
 from app.core.dedup import DedupCase  # noqa: E402
 from app.core.edit_token import generate_edit_token, verify_edit_token  # noqa: E402
-from app.core.normalize import normalize_email, normalize_name, normalize_phone  # noqa: E402
+from app.core.normalize import (  # noqa: E402
+    normalize_email,
+    normalize_heard_about,
+    normalize_name,
+    normalize_phone,
+)
 from app.core.spam import detect_spam  # noqa: E402
 from app.core.validation import validate_submission  # noqa: E402
 from app.db import get_connection  # noqa: E402
@@ -231,13 +236,35 @@ async def submit(request: Request):
     phone_e164, phone_valid = normalize_phone(phone_raw)
     email_normalized = normalize_email(email)
     name, name_normalized = normalize_name(name_raw)
+    # Unbekannter Wert -> "keine Angabe" statt Ablehnung (anders als
+    # contact_time_preference): heard_about ist Selbstauskunft, kein
+    # Pflichtfeld mit Auswirkung auf Mailtext o.ä. - ein 422 dafür wäre
+    # unverhältnismäßig. Der Rohwert geht trotzdem nicht verloren (CLAUDE.md
+    # Regel 4), s. unexpected_fields/Event 'unerwarteter_feldwert' unten.
+    heard_about_normalized, heard_about_unerwartet = normalize_heard_about(heard_about)
+
+    # Attributionsfelder: leerer String -> None, analog zu heard_about/
+    # phone/name oben. Die Hidden Fields im Formular senden bei fehlendem
+    # UTM-Parameter value="" statt gar keinen Wert - ohne diese
+    # Normalisierung landen '' und NULL als zwei verschiedene Gruppen in
+    # jeder Auswertung, die nach diesen Spalten gruppiert (Fund beim Bauen
+    # des Auswertungs-Tabs, s. docs/FUNDE.md).
+    utm_source = field("utm_source") or None
+    utm_medium = field("utm_medium") or None
+    utm_campaign = field("utm_campaign") or None
+    utm_term = field("utm_term") or None
+    utm_content = field("utm_content") or None
+    gclid = field("gclid") or None
+    fbclid = field("fbclid") or None
+    referrer = field("referrer") or None
+    landing_page = field("landing_page") or None
 
     channel, channel_source = derive_channel(
-        utm_source=field("utm_source"),
-        gclid=field("gclid"),
-        fbclid=field("fbclid"),
-        referrer=field("referrer"),
-        heard_about=heard_about,
+        utm_source=utm_source,
+        gclid=gclid,
+        fbclid=fbclid,
+        referrer=referrer,
+        heard_about=heard_about_normalized,
     )
 
     lead_content_hash = content_hash(
@@ -250,7 +277,7 @@ async def submit(request: Request):
         is_owner=is_owner,
         contact_time_preference=contact_time_preference,
         message=message,
-        heard_about=heard_about,
+        heard_about=heard_about_normalized,
     )
 
     submission_token_raw = form_data.get("submission_token")
@@ -274,16 +301,16 @@ async def submit(request: Request):
         is_owner=is_owner,
         contact_time_preference=contact_time_preference,
         message=message,
-        heard_about=heard_about,
-        utm_source=field("utm_source"),
-        utm_medium=field("utm_medium"),
-        utm_campaign=field("utm_campaign"),
-        utm_term=field("utm_term"),
-        utm_content=field("utm_content"),
-        gclid=field("gclid"),
-        fbclid=field("fbclid"),
-        referrer=field("referrer"),
-        landing_page=field("landing_page"),
+        heard_about=heard_about_normalized,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_term=utm_term,
+        utm_content=utm_content,
+        gclid=gclid,
+        fbclid=fbclid,
+        referrer=referrer,
+        landing_page=landing_page,
         channel=channel,
         channel_source=channel_source,
         content_hash=lead_content_hash,
@@ -292,8 +319,10 @@ async def submit(request: Request):
         privacy_accepted_at=submitted_at,
     )
 
+    unexpected_fields = {"heard_about": heard_about} if heard_about_unerwartet else {}
+
     with get_connection() as conn:
-        result = persist_submission(conn, data)
+        result = persist_submission(conn, data, unexpected_fields=unexpected_fields)
 
     if result.case != DedupCase.F1_TECHNISCHE_DOPPLUNG:
         try:

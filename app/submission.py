@@ -63,7 +63,16 @@ class SubmissionResult:
     final_data: "NewLeadData | None"  # None nur bei F1 - kein neuer Datensatz
 
 
-def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> SubmissionResult:
+def persist_submission(
+    conn: psycopg.Connection, data: NewLeadData, *, unexpected_fields: dict[str, str] | None = None
+) -> SubmissionResult:
+    """unexpected_fields: Feldname -> roher Wert, für Felder, die der
+    Aufrufer schon auf einen gültigen Wert normalisiert hat (z.B.
+    heard_about auf None bei unbekannter Selbstauskunft, s.
+    app.core.normalize.normalize_heard_about), deren ursprünglicher
+    Rohwert aber nicht verloren gehen soll (CLAUDE.md Regel 3/4). Wird nur
+    bei tatsächlichem INSERT protokolliert (nicht bei F1 - da entsteht
+    keine neue Zeile, der Rohwert stand schon im ersten Event)."""
     existing_id = _find_by_submission_token(conn, data.submission_token)
     is_replay = existing_id is not None
 
@@ -102,6 +111,7 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
         status = "spam" if data.is_spam else "neu"
         new_id = _insert_lead(conn, data, duplicate_of=None, status=status, assigned_to=None, contacted_at=None)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
+        _log_unexpected_fields(conn, new_id, unexpected_fields)
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
     if decision.case == DedupCase.F2_DUPLIKAT:
@@ -109,6 +119,7 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
             conn, data, duplicate_of=candidate.id, status="duplikat", assigned_to=None, contacted_at=None
         )
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
+        _log_unexpected_fields(conn, new_id, unexpected_fields)
         _insert_event(conn, candidate.id, "erneut_angefragt", {"neuer_lead_id": new_id})
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
@@ -124,6 +135,7 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
         )
         _supersede(conn, old_id=candidate.id, new_id=new_id)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular", "korrektur_von": candidate.id})
+        _log_unexpected_fields(conn, new_id, unexpected_fields)
         _insert_event(
             conn,
             candidate.id,
@@ -135,6 +147,7 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
     if decision.case == DedupCase.F4_KONTAKT_BEKANNT:
         new_id = _insert_lead(conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
+        _log_unexpected_fields(conn, new_id, unexpected_fields)
         _insert_event(conn, new_id, "kontakt_bekannt", {"bekannter_lead_id": candidate.id})
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
@@ -335,3 +348,8 @@ def _supersede(conn: psycopg.Connection, *, old_id: str, new_id: str) -> None:
         "WHERE id = %(old_id)s",
         {"new_id": new_id, "old_id": old_id},
     )
+
+
+def _log_unexpected_fields(conn: psycopg.Connection, lead_id: str, unexpected_fields: dict[str, str] | None) -> None:
+    for feld, wert in (unexpected_fields or {}).items():
+        _insert_event(conn, lead_id, "unerwarteter_feldwert", {"feld": feld, "wert": wert})
