@@ -200,6 +200,29 @@
       <p class="error-summary">Bitte prüfen Sie Ihre Eingaben — einige Angaben fehlen oder sind ungültig.</p>
       {% endif %}
 
+      <div class="field">
+        <label for="name">Name (optional)</label>
+        <input
+          type="text" id="name" name="name" value="{{ values.name }}"
+          autocomplete="name" autocapitalize="words">
+      </div>
+
+      <div class="field">
+        <label for="email">E-Mail-Adresse *</label>
+        <input
+          type="email" id="email" name="email" required
+          value="{{ values.email }}" {% if errors.email %}aria-invalid="true" aria-describedby="email-error"{% endif %}
+          autocomplete="email" inputmode="email">
+        {% if errors.email %}<p class="field-error" id="email-error">{{ errors.email }}</p>{% endif %}
+      </div>
+
+      <div class="field">
+        <label for="phone">Telefon (optional, für schnellere Rückmeldung)</label>
+        <input
+          type="tel" id="phone" name="phone" value="{{ values.phone }}"
+          autocomplete="tel" inputmode="tel">
+      </div>
+
       <fieldset>
         <legend>Adresse des Grundstücks</legend>
 
@@ -231,29 +254,6 @@
           {% if errors.city %}<p class="field-error" id="city-error">{{ errors.city }}</p>{% endif %}
         </div>
       </fieldset>
-
-      <div class="field">
-        <label for="email">E-Mail-Adresse *</label>
-        <input
-          type="email" id="email" name="email" required
-          value="{{ values.email }}" {% if errors.email %}aria-invalid="true" aria-describedby="email-error"{% endif %}
-          autocomplete="email" inputmode="email">
-        {% if errors.email %}<p class="field-error" id="email-error">{{ errors.email }}</p>{% endif %}
-      </div>
-
-      <div class="field">
-        <label for="phone">Telefon (optional, für schnellere Rückmeldung)</label>
-        <input
-          type="tel" id="phone" name="phone" value="{{ values.phone }}"
-          autocomplete="tel" inputmode="tel">
-      </div>
-
-      <div class="field">
-        <label for="name">Name (optional)</label>
-        <input
-          type="text" id="name" name="name" value="{{ values.name }}"
-          autocomplete="name" autocapitalize="words">
-      </div>
 
       <div class="field">
         <label>Sind Sie Eigentümer des Grundstücks? (optional)</label>
