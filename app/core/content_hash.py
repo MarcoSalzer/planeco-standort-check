@@ -10,6 +10,8 @@ dafür keine eigene Funktion in diesem Block gibt.
 import hashlib
 import json
 
+from app.core.text import canonical_text
+
 
 def content_hash(
     *,
@@ -25,22 +27,16 @@ def content_hash(
     heard_about: str | None,
 ) -> str:
     content = {
-        "name": _canonical_text(name),
+        "name": canonical_text(name),
         "email": email_normalized.strip().lower() if email_normalized else "",
         "phone": phone_e164 or "",
-        "street": _canonical_text(street),
-        "postal_code": _canonical_text(postal_code),
-        "city": _canonical_text(city),
+        "street": canonical_text(street),
+        "postal_code": canonical_text(postal_code),
+        "city": canonical_text(city),
         "is_owner": is_owner,
-        "contact_time_preference": _canonical_text(contact_time_preference),
-        "message": _canonical_text(message),
-        "heard_about": _canonical_text(heard_about),
+        "contact_time_preference": canonical_text(contact_time_preference),
+        "message": canonical_text(message),
+        "heard_about": canonical_text(heard_about),
     }
     serialized = json.dumps(content, sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def _canonical_text(value: str | None) -> str:
-    if not value:
-        return ""
-    return " ".join(value.split()).lower()
