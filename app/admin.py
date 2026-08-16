@@ -9,6 +9,7 @@ import dataclasses
 import io
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -388,12 +389,30 @@ def export_leads_csv(request: Request):
     # Excel unter Windows die Datei als Systemcodepage statt UTF-8 und
     # zerlegt jeden Umlaut (CLAUDE.md Regel 8).
     content = buffer.getvalue().encode("utf-8-sig")
-    filename = f"standort-check-leads-{tab}-{berlin_today_iso()}.csv"
+    filename = _csv_filename(tab=tab, show_all=show_all, search=search)
     return Response(
         content=content,
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+_FILENAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _csv_filename(*, tab: str, show_all: bool, search: str | None) -> str:
+    """Dateiname enthält Filter+Suche+Datum, damit mehrere Exporte am
+    selben Tag nicht denselben Namen tragen und sich der Browser nicht
+    stillschweigend für eine "(1)"-Kopie entscheidet (Marco, 2026-08-16)."""
+    parts = ["standort-check-leads", tab]
+    if show_all:
+        parts.append("inkl-inaktive")
+    if search:
+        slug = _FILENAME_UNSAFE_RE.sub("-", search).strip("-").lower()
+        if slug:
+            parts.append(f"suche-{slug[:30]}")
+    parts.append(berlin_today_iso())
+    return "-".join(parts) + ".csv"
 
 
 def _csv_ja_nein(value: bool | None) -> str:
