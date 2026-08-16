@@ -67,7 +67,13 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
     existing_id = _find_by_submission_token(conn, data.submission_token)
     is_replay = existing_id is not None
 
-    candidate = None if is_replay else _find_dedup_candidate(
+    # Spam-Erkennung darf bestehende Daten nie verändern (mit Marco
+    # abgestimmt, 2026-08-16): bei is_spam wird gar kein Kandidat gesucht,
+    # wodurch dedup_decision unten zwangsläufig auf NEU landet - keine
+    # Vererbung, keine Verkettung, kein Anfassen eines Bestandsleads. Ein
+    # Fehlalarm der Spam-Erkennung soll nie einen echten, bereits
+    # bearbeiteten Lead als 'ersetzt' markieren können.
+    candidate = None if (is_replay or data.is_spam) else _find_dedup_candidate(
         conn,
         email_normalized=data.email_normalized,
         phone_e164=data.phone_e164,
@@ -89,7 +95,12 @@ def persist_submission(conn: psycopg.Connection, data: NewLeadData) -> Submissio
         return SubmissionResult(lead_id=existing_id, case=decision.case, final_data=None)
 
     if decision.case == DedupCase.NEU:
-        new_id = _insert_lead(conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None)
+        # data.is_spam kann hier True sein (candidate wurde dafür oben
+        # bewusst auf None erzwungen, s. Kommentar dort) - der Lead bleibt
+        # trotzdem ein ganz normaler eigenständiger NEU-Insert, nur mit
+        # status='spam' statt 'neu'.
+        status = "spam" if data.is_spam else "neu"
+        new_id = _insert_lead(conn, data, duplicate_of=None, status=status, assigned_to=None, contacted_at=None)
         _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
