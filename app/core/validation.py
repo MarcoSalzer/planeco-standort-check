@@ -15,7 +15,7 @@ import re
 from email_validator import EmailNotValidError, validate_email
 
 _POSTAL_CODE_RE = re.compile(r"\d{5}")
-_CONTACT_TIME_PREFERENCES = {"vormittags", "nachmittags", "flexibel"}
+_CONTACT_TIME_PREFERENCES = {"vormittags", "nachmittags", "abends", "flexibel"}
 
 
 def validate_submission(

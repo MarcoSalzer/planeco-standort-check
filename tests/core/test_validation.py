@@ -53,6 +53,11 @@ def test_leere_contact_time_preference_ist_kein_fehler():
     assert "contact_time_preference" not in errors
 
 
+def test_abends_ist_eine_gueltige_contact_time_preference():
+    errors = validate_submission(**_valid_kwargs(contact_time_preference="abends"))
+    assert "contact_time_preference" not in errors
+
+
 def test_privacy_nicht_akzeptiert():
     errors = validate_submission(**_valid_kwargs(privacy_accepted=False))
     assert errors["privacy_accepted"]

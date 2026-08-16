@@ -97,7 +97,9 @@ create table leads (
   is_owner            boolean,                       -- Eigentümer? ja/nein/k.A.
   contact_time_preference text
                       check (contact_time_preference in
-                             ('vormittags','nachmittags','flexibel')
+                             ('vormittags','nachmittags','abends','flexibel')
+                             -- 'abends' bei Implementierung ergänzt, 2026-08-16,
+                             -- Migration 0004_contact_time_abends.sql
                              or contact_time_preference is null),
   message             text,                          -- Anmerkungen/Fragen
   heard_about         text,                          -- Selbstauskunft-Kanal
@@ -227,7 +229,7 @@ Sales-Team kontaktiert"). Datenvollständigkeit ist deshalb ein Ziel für den Ze
 | Telefon | tel | nein | phone_raw |
 | Name | text | nein | name |
 | Eigentümer des Grundstücks? | Radio ja/nein | nein | is_owner |
-| Wann erreichen wir Sie am besten? | Select vormittags/nachmittags/flexibel | nein | contact_time_preference |
+| Wann erreichen wir Sie am besten? | Select vormittags/nachmittags/abends/flexibel | nein | contact_time_preference |
 | Wie sind Sie auf uns aufmerksam geworden? | Select | nein | heard_about |
 | Anmerkungen oder Fragen | textarea | nein | message |
 | Datenschutz-Checkbox | checkbox | **ja** | privacy_accepted_at |
