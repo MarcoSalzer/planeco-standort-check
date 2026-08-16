@@ -3,17 +3,25 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (4) — für den Einstieg in eine neue Session
+## Stand 16.08. abends (5) — für den Einstieg in eine neue Session
 
 Phase 1 und Phase 2 sind fertig und committet (15 Commits, siehe `git log`).
-Phase 3: Login, Lead-Liste (inkl. sichtbarer Dedup-Beziehungen), Detail-
-ansicht, Aktionen UND CSV-Export sind fertig (s. Checkliste unten).
-**Nächster Schritt: Auswertungs-Tab** — schließt Phase 3 ab, danach Phase 4
-(Geocoding). Marco hält bewusst nach dem CSV an, um die Datei einmal
-selbst in Excel zu öffnen - noch nichts aus Phase 3 wurde im Browser
-gegengetestet, alles nur live per curl/httpx gegen echte Supabase-Daten
-verifiziert (inkl. echter F3-Korrekturketten, Spam-Fällen und jetzt einer
-Anmerkung mit Semikolon+Zeilenumbruch+Anführungszeichen fürs CSV-Escaping).
+Phase 3: Login, Lead-Liste (inkl. sichtbarer Dedup-Beziehungen + Export-
+Button), Detailansicht, Aktionen und CSV-Export sind fertig. Marco hat das
+CSV in Excel geöffnet, passt. Zusätzlich: systematischer Testlauf über 40
+Randfälle (`scripts/testlauf.py` → `docs/TESTLAUF.md`), 40/40 wie erwartet,
+ein echter Fund (heard_about ohne Server-Validierung, s. dort). **Nächster
+Schritt: Auswertungs-Tab nach Konzept §7** — schließt Phase 3 ab, danach
+Phase 4 (Geocoding). Login/Liste/Detail/Aktionen/CSV sind bislang NICHT im
+Browser gegengetestet, nur live per curl/httpx/testlauf.py gegen echte
+Supabase-Daten.
+
+**Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,
+`MAX_EMAILS_PER_DAY=50`) steht nach dem intensiven Testen heute bei über 80
+für den UTC-Tag - weitere Mail-Assertions in Tests können `mail_fehlgeschlagen`
+("tageslimit_erreicht") statt `mail_gesendet` sehen. Kein Bug, s. Fund in
+docs/TESTLAUF.md (F2-Fall) - Tests sollten auf "Mail-Versuch fand statt"
+prüfen, nicht auf "Versand war erfolgreich".
 
 **Neu gebaut seit Login:**
 - `app/core/ampel.py` — Ampel-Funktion nach Konzept §B, aus Phase 4
