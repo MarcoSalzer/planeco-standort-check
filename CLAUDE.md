@@ -100,3 +100,8 @@ Der Umsetzungsplan steht in `docs/TODO.md`.
   offen blieb — dieses Material fließt am Ende in `NOTES.md`.
 - Wenn eine Anforderung im Konzept mehrdeutig ist: nachfragen statt annehmen.
   Getroffene Annahmen immer explizit benennen.
+- Nach jeder neuen Abhängigkeit in `requirements.txt`/`requirements-dev.txt`: sofort
+  in `.venv` installieren (`pip install -r requirements-dev.txt`) und verifizieren,
+  dass die Anwendung startet — nicht nur die Datei ändern. Dasselbe `.venv` im
+  Projektverzeichnis verwenden, nicht ein Wegwerf-venv unter anderem Namen, sonst
+  bleibt die Prüfung folgenlos für die Umgebung, die tatsächlich benutzt wird.
