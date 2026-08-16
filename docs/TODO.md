@@ -42,23 +42,44 @@ Dropdown-Filter (Kanal, Bundesland).
    Checkliste unten vermerkt, nicht gebaut.
 
 **Phase 4, Block (a) ist fertig** (Nominatim-Client, s. Checkliste unten -
-zweigeteilt in `app/core/geocoding.py` + `app/geocoding.py`, 15 neue
-Tests, live gegen die echte API verifiziert). **Marco hat "halt nach
-jedem Block an" gesagt** - Block (a) ist fertig und hier bewusst
-angehalten, NICHT selbstständig zu Block (b) (Retry-Endpoint)
-weitergegangen. **Nächster Schritt: Block (b)**, erst nach Marcos
-Freigabe. Ampel-Funktion existiert bereits (`app/core/ampel.py`, aus
-Phase 4 vorgezogen). Auslandspfad + Landesbauordnung-Zuordnung kommen
-laut Marco separat NACH Block (a)-(e).
+zweigeteilt in `app/core/geocoding.py` + `app/geocoding.py`). Die beim
+ersten Live-Test aufgefallene "mehrdeutig"-Häufung wurde vor Block (b)
+untersucht und behoben (Details im nächsten Absatz), wie von Marco
+verlangt ("halt nach jedem Block an" - Block (a) wurde dafür nochmal
+geöffnet, nicht übersprungen). **Nächster Schritt: Block (b)**
+(Retry-Endpoint), von Marco ausdrücklich freigegeben ("Danach Block (b),
+der Retry-Endpoint"). Ampel-Funktion existiert bereits
+(`app/core/ampel.py`, aus Phase 4 vorgezogen). Auslandspfad +
+Landesbauordnung-Zuordnung kommen laut Marco separat NACH Block (a)-(e).
 
-**Beobachtung beim Live-Test von Block (a) (kein Bug, für NOTES.md):**
-mehrere echte deutsche Adressen inkl. Hausnummer+PLZ+Ort lieferten beim
-strukturierten Nominatim-Query "mehrdeutig" mit bis zu 5 Kandidaten
-(Limit erreicht), nicht "ok". Die Ambiguitäts-Anzeige (Block d) wird
-dadurch vermutlich häufiger sichtbar als ursprünglich angenommen - kein
-Grund, die Parsing-Logik zu ändern (sie bildet Nominatims tatsächliche
-Antwort korrekt ab), aber relevant für die Erwartungshaltung an Block (d)
-und fürs Interview.
+**Mehrdeutig-Kriterium korrigiert (17.08., drei Funde, Details in
+docs/FUNDE.md):** Die ursprüngliche Regel ("mehr als ein Nominatim-Treffer
+= mehrdeutig") löste bei vollständigen Adressen fast durchgängig Gelb aus,
+weil Nominatim für dieselbe Stelle oft mehrere OSM-Objekte liefert
+(Gebäude, Ausstattung, Geschäfte) - Marco stoppte deshalb explizit vor
+Block (b) und ließ das erst untersuchen. Neues Kriterium: Kandidaten
+gelten als übereinstimmend, wenn Bundesland UND Gemeinde identisch sind -
+dann `status=ok`, der Kandidat mit höchstem `importance`-Wert gewinnt,
+protokolliert in `geocode_raw.auswahl` (Kandidatenzahl + Einstufung, damit
+später nachvollziehbar bleibt, ob ein Treffer wirklich eindeutig war oder
+unter mehreren ausgewählt wurde). Der Testfall "Lindenweg 3, Neustadt"
+(Aufgabe, keine PLZ) bleibt mehrdeutig (3 echte Bundesländer). Dabei
+zusätzlich gefunden: Nominatim liefert für Berlin und Hamburg (nicht
+durchgängig für Bremen) kein `state`-Feld, nur den ISO-3166-2-Code - über
+eine Lookup-Tabelle behoben, plus neues Feld `geo_state_unresolved`, das
+ein unauflösbares Bundesland sichtbar statt still `None` macht. Beim
+Live-Verifizieren der Fixes zusätzlich gefunden: `SERVICE_AREA_STATES=alle`
+in `.env` (aus der Einrichtungsanleitung übernommen) wurde nicht erkannt
+und ergab `in_service_area=False` für JEDE Adresse, also rote Ampel
+"Außerhalb Deutschlands" für praktisch alles - behoben, "alle" wird jetzt
+als Sentinel erkannt UND jeder Bundesland-Name gegen die echten 16 geprüft
+(ein Tippfehler bricht die Anwendung jetzt beim Start ab, statt still
+einen wirkungslosen Filter zu bilden). Bestehende Leads waren nicht
+betroffen (alle 19 standen noch auf `geocode_status='offen'`, Block (b)
+war der einzige potenzielle Aufrufer und existierte noch nicht). 33 Tests
+in `tests/core/test_geocoding.py` (vorher 15), alle grün, zusätzlich live
+gegen die echte API neu verifiziert (Berlin/Hamburg/Bremen einzeln
+geprüft, nicht nur Berlin).
 
 **Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,
 `MAX_EMAILS_PER_DAY=50`) steht nach dem intensiven Testen heute bei über 80
@@ -218,7 +239,7 @@ Punkte sind alle noch offen.
 - [ ] **Später, nach Phase 4 (Marco, 2026-08-16):** die zwei Dropdown-Filter (Kanal, Bundesland) oben durch Filter direkt an den Spaltenüberschriften Ort, Bundesland, Ampel, Kanal, Status und Zugewiesen ersetzen, jeweils befüllt aus den tatsächlich vorhandenen Werten (nicht die feste Optionsliste wie aktuell bei Kanal/Bundesland). Allgemeine Suche über alle Felder bleibt oben erhalten. Grund für "nach Phase 4": Ampel/Bundesland haben vor dem Geocoding kaum unterscheidbare Werte, ein Filter darauf wäre noch nicht sinnvoll testbar.
 
 ## Phase 4 — Geocoding (Mo, ~2-3h) — Block (a) fertig, (b)-(e) offen
-- [x] **Block (a):** Nominatim-Client, zweigeteilt: `app/core/geocoding.py` (reine Auswertung einer bereits geparsten Antwort, testbar ohne Netzwerk, 15 Tests inkl. Nominatims uneinheitlicher Gemeinde-Schlüssel city/town/village/... und Pilot-Einzugsgebiet) + `app/geocoding.py` (echter Client: structured query street/city/postalcode getrennt, countrycodes=de, limit=5, format=jsonv2, addressdetails=1, User-Agent aus NOMINATIM_USER_AGENT-Env - fehlt der, wird gar nicht erst angefragt statt mit leerem Default, Timeout 3s). Status ok/mehrdeutig/nicht_gefunden (fehlgeschlagen kommt vom Client bei Netzwerk-/HTTP-Fehlern), volle Antwort für geocode_raw, Bundesland/Gemeinde/Koordinaten/in_service_area (+ geo_country als ISO-Code, nicht explizit gefordert aber dieselbe Antwort, günstig für die Ampel-Auslandsregel) abgeleitet. `in_service_area=None` (nicht `False`) wenn gar kein Bundesland ermittelbar war - "wissen wir nicht" ≠ "liegt draußen", dieselbe Unterscheidung wie in app/core/ampel.py. DRY_RUN_GEOCODE bewusst NICHT hier geprüft, sondern für Block (b) vorgesehen (wie MAX_GEOCODE_PER_MINUTE eine Frage des Retry-Laufs, nicht des Clients). Live gegen die echte Nominatim-API verifiziert (mehrdeutig, nicht_gefunden - beide Live-Fälle bestätigt; ok nur per Unit-Test, da mehrere echte Adressen inkl. Hausnummer+PLZ überraschend "mehrdeutig" mit bis zu 5 Kandidaten lieferten - Beobachtung für NOTES.md, kein Bug, s. Rückmeldung an Marco).
+- [x] **Block (a):** Nominatim-Client, zweigeteilt: `app/core/geocoding.py` (reine Auswertung einer bereits geparsten Antwort, testbar ohne Netzwerk, 33 Tests inkl. Nominatims uneinheitlicher Gemeinde-Schlüssel city/town/village/... und Pilot-Einzugsgebiet) + `app/geocoding.py` (echter Client: structured query street/city/postalcode getrennt, countrycodes=de, limit=5, format=jsonv2, addressdetails=1, User-Agent aus NOMINATIM_USER_AGENT-Env - fehlt der, wird gar nicht erst angefragt statt mit leerem Default, Timeout 3s). Status ok/mehrdeutig/nicht_gefunden (fehlgeschlagen kommt vom Client bei Netzwerk-/HTTP-Fehlern), volle Antwort + Auswahl-Protokoll für geocode_raw, Bundesland/Gemeinde/Koordinaten/in_service_area (+ geo_country als ISO-Code, nicht explizit gefordert aber dieselbe Antwort, günstig für die Ampel-Auslandsregel) abgeleitet. `in_service_area=None` (nicht `False`) wenn gar kein Bundesland ermittelbar war - "wissen wir nicht" ≠ "liegt draußen", dieselbe Unterscheidung wie in app/core/ampel.py. DRY_RUN_GEOCODE bewusst NICHT hier geprüft, sondern für Block (b) vorgesehen (wie MAX_GEOCODE_PER_MINUTE eine Frage des Retry-Laufs, nicht des Clients). **Mehrdeutig-Kriterium 17.08. korrigiert** (Bundesland+Gemeinde-Übereinstimmung statt roher Trefferzahl, `importance`-Tie-Breaker, Auswahl-Protokoll in `geocode_raw.auswahl`), dabei zwei weitere Live-Funde behoben (fehlendes `state`-Feld bei Berlin/Hamburg via ISO-3166-2-Fallback + neues `geo_state_unresolved`-Flag; `SERVICE_AREA_STATES=alle` wurde nicht erkannt und ergab `in_service_area=False` für alles - jetzt Sentinel-Erkennung plus Validierung beim Modul-Import). Alle drei Funde in docs/FUNDE.md. Live gegen die echte Nominatim-API neu verifiziert (Berlin/München jetzt korrekt "ok" statt "mehrdeutig", Lindenweg-3-Testfall weiterhin "mehrdeutig", Hamburg/Bremen einzeln auf das state-Feld geprüft).
 - [ ] **Block (b):** Retry-Endpoint POST /admin/retry (RETRY_SECRET), nur process_after <= now(), MAX_GEOCODE_PER_MINUTE + max. 1 Anfrage/Sekunde seriell, Geocoding UND fehlgeschlagene Mails über denselben Pfad, bei F3-Korrektur Vorgänger auf geocode_status=entfaellt
 - [ ] **Block (c):** traffic_light/traffic_light_reason beim Schreiben berechnen und speichern statt live beim Lesen (app/core/ampel.py bleibt die reine Funktion, nur der Aufrufer ändert sich)
 - [ ] **Block (d):** Dashboard mit echten Ampel-Werten, Bundesland gefüllt, Kandidaten bei mehrdeutig in der Detailansicht, Google-Maps-Link aus lat/lon, Buttons "Geocoding erneut" (einzeln) + globaler Retry

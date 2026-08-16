@@ -13,26 +13,29 @@ import os
 
 import httpx
 
-from app.core.geocoding import GERMAN_STATES, GeocodeResult, parse_nominatim_results
+from app.core.geocoding import GeocodeResult, parse_nominatim_results, parse_service_area_states
 
 logger = logging.getLogger(__name__)
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_TIMEOUT_SECONDS = 3.0
 
-
-def _service_area_states() -> set[str]:
-    raw = os.environ.get("SERVICE_AREA_STATES", "").strip()
-    if not raw:
-        return set(GERMAN_STATES)
-    return {s.strip() for s in raw.split(",") if s.strip()}
+# Wird beim Modul-Import ausgewertet (wie app/config.py: MAX_EMAILS_PER_DAY
+# etc.), nicht erst beim ersten Aufruf von geocode() - ein ungültiger Wert
+# (Tippfehler im Bundesland-Namen, z.B. "Bayen") soll den Prozessstart mit
+# einer klaren Meldung abbrechen statt unbemerkt einen Filter zu bilden, der
+# nie zutrifft (Fund beim Live-Test, Marco 2026-08-17, s. docs/FUNDE.md).
+try:
+    SERVICE_AREA_STATES: set[str] = parse_service_area_states(os.environ.get("SERVICE_AREA_STATES", ""))
+except ValueError as exc:
+    raise RuntimeError(f"SERVICE_AREA_STATES (Env-Variable) ist ungültig: {exc}") from exc
 
 
 def _fehlgeschlagen(fehler: str) -> GeocodeResult:
     return GeocodeResult(
         status="fehlgeschlagen", raw={"fehler": fehler}, candidate_count=0,
         lat=None, lon=None, geo_state=None, geo_municipality=None,
-        geo_country=None, in_service_area=None,
+        geo_country=None, in_service_area=None, geo_state_unresolved=False,
     )
 
 
@@ -74,4 +77,4 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
         logger.warning("Nominatim-Anfrage fehlgeschlagen für %r/%r/%r: %s", street, postal_code, city, exc)
         return _fehlgeschlagen(str(exc))
 
-    return parse_nominatim_results(results, service_area_states=_service_area_states())
+    return parse_nominatim_results(results, service_area_states=SERVICE_AREA_STATES)
