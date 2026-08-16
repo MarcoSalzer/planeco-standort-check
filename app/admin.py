@@ -64,9 +64,33 @@ _TAB_LABELS: dict[str, str] = {
 }
 _DEFAULT_TAB = "neu"
 
+# Sortierung: Neu/Bearbeitung sind eine Warteschlange (älteste zuerst
+# abarbeiten), Erledigt/Alle sind Nachschlagewerke (neueste zuerst - man
+# sucht meist die letzte Aktivität). Per ?sort=aeltest|neueste explizit
+# umschaltbar; ohne den Parameter gilt der Tab-Default (Marco, 2026-08-16).
+_TAB_DEFAULT_SORT_OLDEST_FIRST = {
+    "neu": True,
+    "bearbeitung": True,
+    "erledigt": False,
+    "alle": False,
+}
+
 # duplicate/superseded/spam/ausland: nicht Teil der normalen Sales-Warte-
 # schlange (Konzept §4, §A), default ausgeblendet, Toggle "alles anzeigen".
 _HIDDEN_STATUSES = ["duplikat", "ersetzt", "spam", "ausland"]
+
+# Feste Optionslisten für die zwei Dropdown-Filter über der Liste (Marco,
+# 2026-08-16: "nur diese beiden, keine Filter pro Spalte"). Fest statt per
+# DISTINCT-Query aus der DB abgeleitet, damit der Filter schon vor Phase 4
+# vollständig nutzbar ist (aktuell hat kein Lead ein geo_state, die Liste
+# wäre sonst leer) und damit "kommt aktuell nicht vor" nicht mit "gibt es
+# nicht" verwechselt wird.
+_BUNDESLAENDER = [
+    "Baden-Württemberg", "Bayern", "Berlin", "Brandenburg", "Bremen", "Hamburg",
+    "Hessen", "Mecklenburg-Vorpommern", "Niedersachsen", "Nordrhein-Westfalen",
+    "Rheinland-Pfalz", "Saarland", "Sachsen", "Sachsen-Anhalt",
+    "Schleswig-Holstein", "Thüringen",
+]
 
 # Per Hand im Dashboard setzbare status-Werte (Aktionen, Konzept §6).
 # 'duplikat'/'ersetzt'/'ausland' bewusst NICHT dabei: die entstehen nur
@@ -144,61 +168,99 @@ def logout():
     return response
 
 
+def _resolve_dashboard_params(request: Request) -> dict:
+    tab = request.query_params.get("tab", _DEFAULT_TAB)
+    if tab not in _TAB_STATUSES:
+        tab = _DEFAULT_TAB
+
+    sort_param = request.query_params.get("sort")
+    if sort_param == "neueste":
+        sort_oldest_first, sort_explicit = False, "neueste"
+    elif sort_param == "aeltest":
+        sort_oldest_first, sort_explicit = True, "aeltest"
+    else:
+        # Kein expliziter Wunsch -> Tab-Default, s. _TAB_DEFAULT_SORT_OLDEST_FIRST.
+        sort_oldest_first, sort_explicit = _TAB_DEFAULT_SORT_OLDEST_FIRST.get(tab, True), None
+
+    channel_filter = request.query_params.get("channel") or None
+    if channel_filter not in CHANNEL_LABELS:
+        channel_filter = None
+    bundesland_filter = request.query_params.get("bundesland") or None
+    if bundesland_filter not in _BUNDESLAENDER:
+        bundesland_filter = None
+
+    return {
+        "tab": tab,
+        "show_all": request.query_params.get("alle") == "1",
+        "search": (request.query_params.get("q") or "").strip() or None,
+        "sort_oldest_first": sort_oldest_first,
+        "sort_explicit": sort_explicit,
+        "channel_filter": channel_filter,
+        "bundesland_filter": bundesland_filter,
+    }
+
+
 @router.get("")
 def dashboard(request: Request):
     admin_username = _current_admin(request)
     if not admin_username:
         return RedirectResponse(url="/admin/login", status_code=303)
 
-    tab = request.query_params.get("tab", _DEFAULT_TAB)
-    if tab not in _TAB_STATUSES:
-        tab = _DEFAULT_TAB
-    show_all = request.query_params.get("alle") == "1"
-    search = (request.query_params.get("q") or "").strip() or None
-    sort_oldest_first = request.query_params.get("sort") != "neueste"
+    p = _resolve_dashboard_params(request)
 
     with get_connection() as conn:
-        rows = _fetch_leads(conn, tab=tab, show_all=show_all, search=search, sort_oldest_first=sort_oldest_first)
-    leads = [_decorate_row(row) for row in rows]
+        rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
+        leads = [_decorate_row(conn, row) for row in rows]
 
-    tab_urls = {
-        key: _dashboard_url(tab=key, show_all=show_all, search=search, sort_oldest_first=sort_oldest_first)
-        for key in _TAB_STATUSES
-    }
+    def url(**overrides) -> str:
+        return _dashboard_url(**{**p, **overrides})
+
+    tab_urls = {key: url(tab=key) for key in _TAB_STATUSES}
     context = {
         "username": admin_username,
         "leads": leads,
         "tabs": _TAB_LABELS,
-        "active_tab": tab,
+        "active_tab": p["tab"],
         "tab_urls": tab_urls,
-        "show_all": show_all,
-        "search": search or "",
-        "sort_oldest_first": sort_oldest_first,
-        "alle_toggle_url": _dashboard_url(
-            tab=tab, show_all=not show_all, search=search, sort_oldest_first=sort_oldest_first
-        ),
-        "sort_toggle_url": _dashboard_url(
-            tab=tab, show_all=show_all, search=search, sort_oldest_first=not sort_oldest_first
-        ),
-        "clear_search_url": _dashboard_url(tab=tab, show_all=show_all, search=None, sort_oldest_first=sort_oldest_first),
-        "csv_export_url": _dashboard_url(
-            tab=tab, show_all=show_all, search=search, sort_oldest_first=sort_oldest_first, path="/admin/export.csv"
-        ),
+        "show_all": p["show_all"],
+        "search": p["search"] or "",
+        "sort_oldest_first": p["sort_oldest_first"],
+        "channel_filter": p["channel_filter"] or "",
+        "bundesland_filter": p["bundesland_filter"] or "",
+        "channel_options": CHANNEL_LABELS,
+        "bundesland_options": _BUNDESLAENDER,
+        "alle_toggle_url": url(show_all=not p["show_all"]),
+        "sort_url_aeltest": url(sort_explicit="aeltest"),
+        "sort_url_neueste": url(sort_explicit="neueste"),
+        "clear_filters_url": url(search=None, channel_filter=None, bundesland_filter=None),
+        "csv_export_url": url(path="/admin/export.csv"),
         "channel_labels": CHANNEL_LABELS,
     }
     return templates.TemplateResponse(request=request, name="admin_dashboard.html", context=context)
 
 
 def _dashboard_url(
-    *, tab: str, show_all: bool, search: str | None, sort_oldest_first: bool, path: str = "/admin"
+    *,
+    tab: str,
+    show_all: bool,
+    search: str | None,
+    sort_explicit: str | None,
+    channel_filter: str | None = None,
+    bundesland_filter: str | None = None,
+    path: str = "/admin",
+    **_ignored,  # sort_oldest_first u.ä. aus p durchgereicht, hier irrelevant
 ) -> str:
     params: list[tuple[str, str]] = [("tab", tab)]
     if show_all:
         params.append(("alle", "1"))
-    if not sort_oldest_first:
-        params.append(("sort", "neueste"))
+    if sort_explicit:
+        params.append(("sort", sort_explicit))
     if search:
         params.append(("q", search))
+    if channel_filter:
+        params.append(("channel", channel_filter))
+    if bundesland_filter:
+        params.append(("bundesland", bundesland_filter))
     return f"{path}?" + urlencode(params)
 
 
@@ -209,7 +271,14 @@ def _escape_ilike(term: str) -> str:
 
 
 def _fetch_leads(
-    conn: psycopg.Connection, *, tab: str, show_all: bool, search: str | None, sort_oldest_first: bool
+    conn: psycopg.Connection,
+    *,
+    tab: str,
+    show_all: bool,
+    search: str | None,
+    sort_oldest_first: bool,
+    channel_filter: str | None = None,
+    bundesland_filter: str | None = None,
 ) -> list[dict]:
     conditions: list[str] = []
     params: dict = {}
@@ -236,6 +305,14 @@ def _fetch_leads(
             "OR l.phone_raw ILIKE %(search)s OR l.phone_e164 ILIKE %(search)s OR l.city ILIKE %(search)s)"
         )
         params["search"] = f"%{_escape_ilike(search)}%"
+
+    if channel_filter:
+        conditions.append("l.channel = %(channel_filter)s")
+        params["channel_filter"] = channel_filter
+
+    if bundesland_filter:
+        conditions.append("l.geo_state = %(bundesland_filter)s")
+        params["bundesland_filter"] = bundesland_filter
 
     where_sql = " AND ".join(conditions) if conditions else "true"
     order_sql = "l.created_at ASC" if sort_oldest_first else "l.created_at DESC"
@@ -291,7 +368,51 @@ def _fetch_leads(
 _INAKTIVE_STATUSWERTE = {"duplikat", "ersetzt", "spam", "ausland"}
 
 
-def _decorate_row(row: dict) -> dict:
+def _kette_info(conn: psycopg.Connection, lead_id: str) -> tuple[int, int] | None:
+    """(Position, Gesamtlänge) in der superseded_by-Kette, oder None wenn
+    dieser Lead weder Vorgänger noch Nachfolger hat. Erst rückwärts zur
+    Wurzel (ältester Vorgänger), dann von dort vorwärts die ganze Kette
+    einsammeln - dieselbe Wurzel-Logik wie in _fetch_ancestor_chain, nur
+    zusätzlich mit Vorwärtslauf für die Gesamtlänge."""
+    root_id = lead_id
+    for _ in range(50):
+        row = conn.execute("SELECT id FROM leads WHERE superseded_by = %(id)s", {"id": root_id}).fetchone()
+        if row is None:
+            break
+        root_id = str(row[0])
+
+    chain_ids = [root_id]
+    current_id = root_id
+    for _ in range(50):
+        row = conn.execute("SELECT superseded_by FROM leads WHERE id = %(id)s", {"id": current_id}).fetchone()
+        if row is None or row[0] is None:
+            break
+        current_id = str(row[0])
+        chain_ids.append(current_id)
+
+    if len(chain_ids) < 2:
+        return None
+    return chain_ids.index(lead_id) + 1, len(chain_ids)
+
+
+def _duplikatgruppe_info(conn: psycopg.Connection, lead_id: str, duplicate_of) -> tuple[int, int] | None:
+    """(Position, Gesamtgröße) der Duplikatgruppe (Original + alle F2-
+    Duplikate, chronologisch), oder None wenn dieser Lead weder Original
+    mit Duplikaten noch selbst ein Duplikat ist."""
+    wurzel = str(duplicate_of) if duplicate_of else lead_id
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT id FROM leads WHERE id = %(w)s OR duplicate_of = %(w)s ORDER BY created_at ASC",
+            {"w": wurzel},
+        )
+        rows = cur.fetchall()
+    if len(rows) < 2:
+        return None
+    ids = [str(r["id"]) for r in rows]
+    return ids.index(lead_id) + 1, len(ids)
+
+
+def _decorate_row(conn: psycopg.Connection, row: dict) -> dict:
     result = compute_ampel(
         is_spam=row["is_spam"],
         spam_reason=row["spam_reason"],
@@ -306,6 +427,19 @@ def _decorate_row(row: dict) -> dict:
     )
 
     badges: list[dict] = []
+
+    # Zusammengehörigkeit zuerst, als schnelle Gesamtübersicht ohne den
+    # einzelnen Verweisen folgen zu müssen (Marco, 2026-08-16).
+    if row["superseded_by"] or row["vorgaenger_id"]:
+        kette = _kette_info(conn, str(row["id"]))
+        if kette:
+            pos, total = kette
+            badges.append({"text": f"Teil einer Korrekturkette: Anfrage {pos} von {total}", "url": None})
+    dup_gruppe = _duplikatgruppe_info(conn, str(row["id"]), row["duplicate_of"])
+    if dup_gruppe:
+        pos, total = dup_gruppe
+        badges.append({"text": f"Teil einer Duplikatgruppe: Anfrage {pos} von {total}", "url": None})
+
     if row["erneut_angefragt_am"] is not None:
         badges.append({"text": f"Erneut angefragt am {format_berlin_datetime(row['erneut_angefragt_am'])}", "url": None})
     if row["duplicate_of"] and row["duplicate_of_created_at"] is not None:
@@ -365,16 +499,11 @@ def export_leads_csv(request: Request):
     if not admin_username:
         return RedirectResponse(url="/admin/login", status_code=303)
 
-    tab = request.query_params.get("tab", _DEFAULT_TAB)
-    if tab not in _TAB_STATUSES:
-        tab = _DEFAULT_TAB
-    show_all = request.query_params.get("alle") == "1"
-    search = (request.query_params.get("q") or "").strip() or None
-    sort_oldest_first = request.query_params.get("sort") != "neueste"
+    p = _resolve_dashboard_params(request)
 
     with get_connection() as conn:
-        rows = _fetch_leads(conn, tab=tab, show_all=show_all, search=search, sort_oldest_first=sort_oldest_first)
-    leads = [_decorate_row(row) for row in rows]
+        rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
+        leads = [_decorate_row(conn, row) for row in rows]
 
     buffer = io.StringIO()
     # Excel (Deutschland) erwartet Semikolon als Trennzeichen (CLAUDE.md
@@ -390,7 +519,10 @@ def export_leads_csv(request: Request):
     # Excel unter Windows die Datei als Systemcodepage statt UTF-8 und
     # zerlegt jeden Umlaut (CLAUDE.md Regel 8).
     content = buffer.getvalue().encode("utf-8-sig")
-    filename = _csv_filename(tab=tab, show_all=show_all, search=search)
+    filename = _csv_filename(
+        tab=p["tab"], show_all=p["show_all"], search=p["search"],
+        channel_filter=p["channel_filter"], bundesland_filter=p["bundesland_filter"],
+    )
     return Response(
         content=content,
         media_type="text/csv",
@@ -401,13 +533,24 @@ def export_leads_csv(request: Request):
 _FILENAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
-def _csv_filename(*, tab: str, show_all: bool, search: str | None) -> str:
+def _csv_filename(
+    *,
+    tab: str,
+    show_all: bool,
+    search: str | None,
+    channel_filter: str | None = None,
+    bundesland_filter: str | None = None,
+) -> str:
     """Dateiname enthält Filter+Suche+Datum, damit mehrere Exporte am
     selben Tag nicht denselben Namen tragen und sich der Browser nicht
     stillschweigend für eine "(1)"-Kopie entscheidet (Marco, 2026-08-16)."""
     parts = ["standort-check-leads", tab]
     if show_all:
         parts.append("inkl-inaktive")
+    if channel_filter:
+        parts.append(f"kanal-{_FILENAME_UNSAFE_RE.sub('-', channel_filter).strip('-').lower()}")
+    if bundesland_filter:
+        parts.append(f"bundesland-{_FILENAME_UNSAFE_RE.sub('-', bundesland_filter).strip('-').lower()}")
     if search:
         slug = _FILENAME_UNSAFE_RE.sub("-", search).strip("-").lower()
         if slug:

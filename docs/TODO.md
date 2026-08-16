@@ -3,19 +3,38 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (6) — für den Einstieg in eine neue Session
+## Stand 16.08. abends (7) — für den Einstieg in eine neue Session
 
 Phase 1, Phase 2 UND Phase 3 sind vollständig fertig und committet (siehe
-`git log`): Login, Lead-Liste (inkl. sichtbarer Dedup-Beziehungen +
-Export-Button), Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab.
-Marco hat das CSV in Excel geöffnet, passt. Systematischer Testlauf über
-40 Randfälle (`scripts/testlauf.py` → `docs/TESTLAUF.md`), 40/40 wie
-erwartet, ein echter Fund (heard_about ohne Server-Validierung, s. dort).
+`git log`). Marco hat sechs echte Testanfragen über das Formular im
+Browser durchlaufen lassen — erster echter Browser-Test der ganzen
+Session, Ergebnisse im Dashboard korrekt. Danach sieben Nacharbeiten
+durchgeführt (alle committet):
+
+1. Formular-Feldreihenfolge: Name/E-Mail/Telefon vor Adresse.
+2. `heard_about`-Fund repariert: unbekannter Wert -> "keine Angabe" +
+   Event `unerwarteter_feldwert` (kein 422, anders als
+   `contact_time_preference`).
+3. Attributionsfelder-Fund repariert: leerer String -> NULL für alle neun
+   Felder, 15 Bestandszeilen per Migration 0005 bereinigt.
+4. Beide Funde in docs/FUNDE.md nachgetragen.
+5. Sortierung: Neu/Bearbeitung = älteste zuerst (Warteschlange),
+   Erledigt/Alle = neueste zuerst (Nachschlagewerk), beides per
+   `?sort=aeltest|neueste` explizit umschaltbar und sichtbar beschriftet;
+   Tab-Wechsel ohne explizite Wahl behält NICHT die vorherige Sortierung
+   bei, sondern nutzt den Tab-eigenen Default.
+6. Zusammengehörige Anfragen: Badge "Teil einer Korrekturkette/
+   Duplikatgruppe: Anfrage X von Y" pro Lead (`_kette_info`/
+   `_duplikatgruppe_info` in app/admin.py).
+7. Zwei Dropdown-Filter (Kanal, Bundesland) über der Liste, kombinierbar
+   mit Suche/Tab/Sortierung, CSV-Export respektiert sie mit.
+
 **Nächster Schritt: Phase 4 (Geocoding)** — Nominatim-Integration,
 Ampel-Funktion existiert bereits (`app/core/ampel.py`, aus Phase 4
 vorgezogen), Auslandspfad, Bundesland→Landesbauordnung-Mapping,
-GitHub-Actions-Cron, `/admin/retry`. Login/Liste/Detail/Aktionen/CSV/
-Auswertung sind bislang NICHT im Browser gegengetestet, nur live per
+GitHub-Actions-Cron, `/admin/retry`. Nur das ursprüngliche Formular +
+Login wurden bislang im Browser getestet, der Rest (Liste/Detail/
+Aktionen/CSV/Auswertung inkl. der sieben Nacharbeiten) nur live per
 curl/httpx/testlauf.py gegen echte Supabase-Daten.
 
 **Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,

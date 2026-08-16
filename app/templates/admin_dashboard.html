@@ -106,7 +106,19 @@
       border-radius: 0.4rem;
       font-family: inherit;
     }
-    form.search input:focus {
+    form.search select {
+      min-height: 40px;
+      padding: 0.5rem 0.6rem;
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 0.4rem;
+      font-family: inherit;
+      background: #fff;
+      color: var(--text);
+      max-width: 11rem;
+    }
+    form.search input:focus,
+    form.search select:focus {
       outline: 2px solid var(--focus);
       outline-offset: 1px;
     }
@@ -130,6 +142,30 @@
     form.search button:hover,
     nav.tabs a:hover {
       opacity: 0.85;
+    }
+
+    .sort-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      font-size: 0.85rem;
+    }
+    .sort-row .label {
+      color: var(--muted);
+    }
+    .sort-row a {
+      text-decoration: none;
+      color: var(--text);
+      padding: 0.25rem 0.6rem;
+      border-radius: 0.35rem;
+      border: 1px solid var(--border);
+    }
+    .sort-row a.active {
+      background: var(--focus);
+      border-color: var(--focus);
+      color: #fff;
+      font-weight: 600;
     }
 
     .export-row {
@@ -298,17 +334,34 @@
       <form class="search" method="get" action="/admin">
         <input type="hidden" name="tab" value="{{ active_tab }}">
         {% if show_all %}<input type="hidden" name="alle" value="1">{% endif %}
-        {% if not sort_oldest_first %}<input type="hidden" name="sort" value="neueste">{% endif %}
+        <input type="hidden" name="sort" value="{{ 'aeltest' if sort_oldest_first else 'neueste' }}">
         <input type="search" name="q" value="{{ search }}" placeholder="Suche nach Name, E-Mail, Telefon oder Ort" aria-label="Lead-Suche">
-        <button type="submit">Suchen</button>
+        <select name="channel" aria-label="Nach Kanal filtern">
+          <option value="">Alle Kanäle</option>
+          {% for value, label in channel_options.items() %}
+          <option value="{{ value }}" {{ "selected" if value == channel_filter else "" }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select name="bundesland" aria-label="Nach Bundesland filtern">
+          <option value="">Alle Bundesländer</option>
+          {% for b in bundesland_options %}
+          <option value="{{ b }}" {{ "selected" if b == bundesland_filter else "" }}>{{ b }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Filtern</button>
       </form>
-      {% if search %}<a class="toggle-link" href="{{ clear_search_url }}">Suche zurücksetzen</a>{% endif %}
-      <a class="toggle-link" href="{{ sort_toggle_url }}">
-        {{ "Neueste zuerst anzeigen" if sort_oldest_first else "Älteste zuerst anzeigen" }}
-      </a>
+      {% if search or channel_filter or bundesland_filter %}
+      <a class="toggle-link" href="{{ clear_filters_url }}">Filter zurücksetzen</a>
+      {% endif %}
       <a class="toggle-link" href="{{ alle_toggle_url }}">
         {{ "Alles anzeigen (inkl. Duplikate, Ersetzt, Spam, Ausland)" if not show_all else "Nur aktive Leads anzeigen" }}
       </a>
+    </div>
+
+    <div class="sort-row">
+      <span class="label">Sortierung:</span>
+      <a href="{{ sort_url_aeltest }}" class="{{ 'active' if sort_oldest_first else '' }}">Älteste zuerst</a>
+      <a href="{{ sort_url_neueste }}" class="{{ 'active' if not sort_oldest_first else '' }}">Neueste zuerst</a>
     </div>
 
     <div class="export-row">
@@ -368,9 +421,14 @@
     </div>
     {% else %}
     <div class="empty-state">
-      {% if search %}
-      <p>Keine Treffer für „{{ search }}“ in {{ tabs[active_tab] }}.</p>
-      <p><a href="{{ clear_search_url }}">Suche zurücksetzen</a></p>
+      {% if search or channel_filter or bundesland_filter %}
+      <p>
+        Keine Treffer in {{ tabs[active_tab] }}
+        {%- if search %} für „{{ search }}“{% endif -%}
+        {%- if channel_filter %} im Kanal „{{ channel_labels.get(channel_filter, channel_filter) }}“{% endif -%}
+        {%- if bundesland_filter %} in „{{ bundesland_filter }}“{% endif -%}.
+      </p>
+      <p><a href="{{ clear_filters_url }}">Filter zurücksetzen</a></p>
       {% else %}
       <p>Keine Leads im Status „{{ tabs[active_tab] }}“.</p>
       {% if not show_all %}
