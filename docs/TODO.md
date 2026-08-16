@@ -41,12 +41,24 @@ Dropdown-Filter (Kanal, Bundesland).
    durch Spalten-Header-Filter ersetzen - als Punkt in der Phase-3-
    Checkliste unten vermerkt, nicht gebaut.
 
-**Nächster Schritt: Phase 4 (Geocoding), Block (a) - Nominatim-Client.**
-Marco hat die Reihenfolge a-e vorgegeben und ausdrücklich "halt nach
-jedem Block an" gesagt - nach Block (a) also anhalten und nicht
-selbstständig zu (b) Retry-Endpoint weitergehen. Ampel-Funktion existiert
-bereits (`app/core/ampel.py`, aus Phase 4 vorgezogen). Auslandspfad +
-Landesbauordnung-Zuordnung kommen laut Marco separat NACH Block (a)-(e).
+**Phase 4, Block (a) ist fertig** (Nominatim-Client, s. Checkliste unten -
+zweigeteilt in `app/core/geocoding.py` + `app/geocoding.py`, 15 neue
+Tests, live gegen die echte API verifiziert). **Marco hat "halt nach
+jedem Block an" gesagt** - Block (a) ist fertig und hier bewusst
+angehalten, NICHT selbstständig zu Block (b) (Retry-Endpoint)
+weitergegangen. **Nächster Schritt: Block (b)**, erst nach Marcos
+Freigabe. Ampel-Funktion existiert bereits (`app/core/ampel.py`, aus
+Phase 4 vorgezogen). Auslandspfad + Landesbauordnung-Zuordnung kommen
+laut Marco separat NACH Block (a)-(e).
+
+**Beobachtung beim Live-Test von Block (a) (kein Bug, für NOTES.md):**
+mehrere echte deutsche Adressen inkl. Hausnummer+PLZ+Ort lieferten beim
+strukturierten Nominatim-Query "mehrdeutig" mit bis zu 5 Kandidaten
+(Limit erreicht), nicht "ok". Die Ambiguitäts-Anzeige (Block d) wird
+dadurch vermutlich häufiger sichtbar als ursprünglich angenommen - kein
+Grund, die Parsing-Logik zu ändern (sie bildet Nominatims tatsächliche
+Antwort korrekt ab), aber relevant für die Erwartungshaltung an Block (d)
+und fürs Interview.
 
 **Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,
 `MAX_EMAILS_PER_DAY=50`) steht nach dem intensiven Testen heute bei über 80
@@ -205,15 +217,13 @@ Punkte sind alle noch offen.
 - [x] Tab Auswertung (`GET /admin/auswertung`): GROUP BY **channel** (nicht utm_source, s. §H)/campaign/heard_about/Bundesland als Links statt Dropdown (kein JS), alle 8 Spalten aus §7, "Basis: n" pro Zeile, Quoten unter n=10 grau/kursiv, Kreuztabelle Kanal×Bundesland. Live gegen echte Daten verifiziert (Zahlen von Hand gegengerechnet, exakte Übereinstimmung). Fund beim Bauen behoben: `utm_campaign` wird beim Submit nicht leer→NULL normalisiert (anders als heard_about/phone/name) - ohne `NULLIF(...,'')` in der Query erschienen zwei optisch identische "(keine Angabe)"-Zeilen für NULL und ''. Query-seitig gefixt, Ursache in `main.py` (Submit-Handler) nicht angefasst - dort betrifft es auch utm_source/medium/term/content/gclid/fbclid/referrer/landing_page, nicht nur campaign.
 - [ ] **Später, nach Phase 4 (Marco, 2026-08-16):** die zwei Dropdown-Filter (Kanal, Bundesland) oben durch Filter direkt an den Spaltenüberschriften Ort, Bundesland, Ampel, Kanal, Status und Zugewiesen ersetzen, jeweils befüllt aus den tatsächlich vorhandenen Werten (nicht die feste Optionsliste wie aktuell bei Kanal/Bundesland). Allgemeine Suche über alle Felder bleibt oben erhalten. Grund für "nach Phase 4": Ampel/Bundesland haben vor dem Geocoding kaum unterscheidbare Werte, ein Filter darauf wäre noch nicht sinnvoll testbar.
 
-## Phase 4 — Geocoding (Mo, ~2-3h)
-- [ ] Nominatim: structured query, countrycodes=de, limit=5, User-Agent, Timeout
-- [ ] ok/mehrdeutig/nicht_gefunden/fehlgeschlagen, geocode_raw, in_service_area (Default alle 16, Env)
-- [ ] Ampel-Funktion nach Konzept §B (10 Regeln, Prioritätsreihenfolge, Grundtext) + Tabellentest
-- [ ] Auslandspfad: status=ausland, zweite Mail via Retry, expansion_opt_in
-- [ ] Bundesland → Landesbauordnung Mapping (16 Einträge, statisch) in Detailansicht
-- [ ] Ambiguitäts-Anzeige mit Kandidaten
-- [ ] GitHub-Actions-Cron 15 min -> /admin/retry (Secret-Header); Dedup-Nachlauf 24h
-- [ ] Retry verarbeitet nur process_after <= now(); bei F3 Vorgaenger auf geocode_status=entfaellt setzen
+## Phase 4 — Geocoding (Mo, ~2-3h) — Block (a) fertig, (b)-(e) offen
+- [x] **Block (a):** Nominatim-Client, zweigeteilt: `app/core/geocoding.py` (reine Auswertung einer bereits geparsten Antwort, testbar ohne Netzwerk, 15 Tests inkl. Nominatims uneinheitlicher Gemeinde-Schlüssel city/town/village/... und Pilot-Einzugsgebiet) + `app/geocoding.py` (echter Client: structured query street/city/postalcode getrennt, countrycodes=de, limit=5, format=jsonv2, addressdetails=1, User-Agent aus NOMINATIM_USER_AGENT-Env - fehlt der, wird gar nicht erst angefragt statt mit leerem Default, Timeout 3s). Status ok/mehrdeutig/nicht_gefunden (fehlgeschlagen kommt vom Client bei Netzwerk-/HTTP-Fehlern), volle Antwort für geocode_raw, Bundesland/Gemeinde/Koordinaten/in_service_area (+ geo_country als ISO-Code, nicht explizit gefordert aber dieselbe Antwort, günstig für die Ampel-Auslandsregel) abgeleitet. `in_service_area=None` (nicht `False`) wenn gar kein Bundesland ermittelbar war - "wissen wir nicht" ≠ "liegt draußen", dieselbe Unterscheidung wie in app/core/ampel.py. DRY_RUN_GEOCODE bewusst NICHT hier geprüft, sondern für Block (b) vorgesehen (wie MAX_GEOCODE_PER_MINUTE eine Frage des Retry-Laufs, nicht des Clients). Live gegen die echte Nominatim-API verifiziert (mehrdeutig, nicht_gefunden - beide Live-Fälle bestätigt; ok nur per Unit-Test, da mehrere echte Adressen inkl. Hausnummer+PLZ überraschend "mehrdeutig" mit bis zu 5 Kandidaten lieferten - Beobachtung für NOTES.md, kein Bug, s. Rückmeldung an Marco).
+- [ ] **Block (b):** Retry-Endpoint POST /admin/retry (RETRY_SECRET), nur process_after <= now(), MAX_GEOCODE_PER_MINUTE + max. 1 Anfrage/Sekunde seriell, Geocoding UND fehlgeschlagene Mails über denselben Pfad, bei F3-Korrektur Vorgänger auf geocode_status=entfaellt
+- [ ] **Block (c):** traffic_light/traffic_light_reason beim Schreiben berechnen und speichern statt live beim Lesen (app/core/ampel.py bleibt die reine Funktion, nur der Aufrufer ändert sich)
+- [ ] **Block (d):** Dashboard mit echten Ampel-Werten, Bundesland gefüllt, Kandidaten bei mehrdeutig in der Detailansicht, Google-Maps-Link aus lat/lon, Buttons "Geocoding erneut" (einzeln) + globaler Retry
+- [ ] **Block (e):** GitHub-Actions-Workflow, alle 15 min, ruft /admin/retry mit Secret im Header auf
+- [ ] Auslandspfad (status=ausland, zweite Mail, expansion_opt_in) und Bundesland→Landesbauordnung-Mapping: laut Marco separat NACH (a)-(e), nicht Teil dieser Reihenfolge
 
 ## Phase 5 — Abnahme (Di, ~2-3h)
 - [ ] Fünf Beispielanfragen vom Handy (fiktive Mails, einmal mit ?utm_source=meta&utm_campaign=test)
