@@ -260,14 +260,23 @@
     table.leads tr.row-defekt:hover td {
       background: #fbdde2;
     }
-    table.leads tr.vorgang-block-b td {
-      background: #eef3f9;
+
+    .ampel-legende {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin: 0 0 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem 0.9rem;
     }
-    table.leads tr.vorgang-block-b:hover td {
-      background: #e2ebf6;
+    .ampel-legende .dot {
+      margin-right: 0.25rem;
     }
-    table.leads tr.vorgang-nicht-letzte td {
-      border-bottom-color: transparent;
+    .ampel-legende span.eintrag {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
     }
 
     th.filterable {
@@ -397,8 +406,18 @@
       <span class="label">Sortierung:</span>
       <a href="{{ sort_url_aeltest }}" class="{{ 'active' if sort_mode == 'aeltest' else '' }}">Älteste zuerst</a>
       <a href="{{ sort_url_neueste }}" class="{{ 'active' if sort_mode == 'neueste' else '' }}">Neueste zuerst</a>
-      <a href="{{ sort_url_vorgang }}" class="{{ 'active' if sort_mode == 'vorgang' else '' }}">Nach Vorgang (zusammengehörige Zeilen gruppiert)</a>
+      <a href="{{ sort_url_nummer_auf }}" class="{{ 'active' if sort_mode == 'nummer_auf' else '' }}">Lead-Nr. aufsteigend</a>
+      <a href="{{ sort_url_nummer_ab }}" class="{{ 'active' if sort_mode == 'nummer_ab' else '' }}">Lead-Nr. absteigend</a>
     </div>
+
+    <p class="ampel-legende">
+      <span class="eintrag"><span class="dot gruen" aria-hidden="true"></span>Bearbeitbar</span>
+      <span class="eintrag"><span class="dot gelb" aria-hidden="true"></span>Prüfen</span>
+      <span class="eintrag"><span class="dot rot" aria-hidden="true"></span>Problem</span>
+      <span class="eintrag"><span class="dot grau" aria-hidden="true"></span>Ausstehend</span>
+      <span class="eintrag"><span class="dot schwarz" aria-hidden="true"></span>Spamverdacht</span>
+      <span>· Gedämpfte Zeile = ältere Version, Duplikat oder Spam, nicht die aktuell gültige</span>
+    </p>
 
     <div class="export-row">
       <a class="button-primary" href="{{ csv_export_url }}">Als CSV exportieren (aktuelle Ansicht)</a>
@@ -480,8 +499,6 @@
           <tr class="
             {{- ' row-inaktiv' if lead.row_inaktiv }}
             {{- ' row-defekt' if lead.zeile_defekt }}
-            {{- ' vorgang-block-b' if lead.vorgang_block_geradzahlig is defined and not lead.vorgang_block_geradzahlig }}
-            {{- ' vorgang-nicht-letzte' if lead.vorgang_block_letzte is defined and not lead.vorgang_block_letzte }}
           ">
             <td>{{ lead.lead_nummer if lead.lead_nummer is not none else "–" }}</td>
             <td>{{ lead.created_at_display }}</td>

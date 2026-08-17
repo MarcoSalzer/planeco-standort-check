@@ -212,3 +212,27 @@ Fehler sind ausschließlich beim Deployment sichtbar, keiner lokal
 reproduzierbar - Vercels Build-Pipeline interpretiert Konfigurationsdateien
 strenger und anders, als die Werkzeuge, für die sie eigentlich gedacht
 sind.
+
+## Blockweise Gruppen-Einfärbung war mit dem eigenen Standardfilter unvereinbar (`app/admin.py`, `admin_dashboard.html`)
+
+Die "Blockweise Tönung" vom 17.08. (zusammengehörige Zeilen teilen sich
+einen getönten Hintergrund) wurde gebaut und live geprüft, aber nur mit
+`alle=1` - also mit eingeblendeten Duplikaten/Ersetzt-Zeilen. Im
+STANDARDFILTER (der Normalfall: Duplikate/Ersetzt/Spam/Ausland
+ausgeblendet) enthält jede Lead-Nummer-Gruppe zwangsläufig nur die eine
+aktuell gültige Zeile - die zweite oder dritte Version, die die Tönung
+erst als Gruppe erkennbar machen sollte, ist ja genau das, was der
+Standardfilter wegblendet. Übrig blieb ein bedeutungsloses Zebramuster
+über Einzelzeilen, dazu in Blau - einer Farbe, die als Hervorhebung liest,
+nicht als Dämpfung, also das Gegenteil der beabsichtigten Wirkung. Aufgefallen
+erst, als Marco die Liste als Export/Screenshots durchsah, nicht bei der
+eigenen Live-Verifikation - die lief ausschließlich mit `alle=1`, dem
+einzigen Modus, in dem die Tönung tatsächlich das zeigte, wofür sie gebaut
+wurde. Derselbe blinde Fleck wie beim `geocode_status='simuliert'`-Fund:
+gegen einen unvollständigen Satz an Zuständen getestet, nicht gegen den
+tatsächlichen Standardfall.
+
+Behoben durch Vereinfachung statt Reparatur: Die Tönung ersatzlos entfernt,
+die bereits vorhandene `row-inaktiv`-Dämpfung (Duplikat/Ersetzt/Spam/
+Ausland gedämpft, alles andere normal) übernimmt die Funktion allein - eine
+Regel weniger im Kopf, nicht mehr.

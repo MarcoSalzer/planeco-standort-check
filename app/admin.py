@@ -67,29 +67,38 @@ _TAB_LABELS: dict[str, str] = {
 _DEFAULT_TAB = "neu"
 
 # Sortierung: Neu/Bearbeitung sind eine Warteschlange (älteste zuerst
-# abarbeiten). Alle gruppiert stattdessen nach Vorgang (Lead-Nummer
-# absteigend, innerhalb derselben Nummer Eingangszeit aufsteigend) - dort
-# liegen zusammengehörige Zeilen oft zeitlich weit auseinander, weil
+# abarbeiten). Erledigt bleibt neueste zuerst (Nachschlagewerk). Alle
+# sortiert standardmäßig nach Lead-Nummer absteigend (innerhalb derselben
+# Nummer Eingangszeit aufsteigend als Tiebreaker, damit zusammengehörige
+# Zeilen in sich sortiert stehen, nicht nur zufällig benachbart) - dort
+# liegen zusammengehörige Zeilen sonst oft zeitlich weit auseinander, weil
 # dazwischen andere Anfragen eingegangen sind (Marco, 2026-08-17: "Thomas
 # Ahrens hat zweimal die 12... stehen deshalb in der Liste nicht
-# nebeneinander"). Erledigt bleibt neueste zuerst (Nachschlagewerk) - eine
-# 'ersetzt'-Zeile kann dort nie erscheinen (Tab-Status-Filter lässt nur
-# qualifiziert/disqualifiziert zu), das Problem tritt dort also nicht auf.
-# Per ?sort=aeltest|neueste|vorgang explizit umschaltbar, sonst Tab-Default.
+# nebeneinander"). Lead-Nummer ist wie die anderen beiden Modi in beide
+# Richtungen anklickbar (Marco, 2026-08-18) - kein Sonderfall "Vorgang"
+# mehr, seit die Gruppen-Einfärbung entfiel (s. docs/FUNDE.md-Eintrag vom
+# selben Tag: bei ausgeblendeten Duplikaten/Ersetzt-Zeilen bestand jede
+# Gruppe ohnehin nur aus einer Zeile).
+# Per ?sort=aeltest|neueste|nummer_auf|nummer_ab explizit umschaltbar,
+# sonst Tab-Default.
 _SORT_MODE_SQL = {
     "aeltest": "l.created_at ASC",
     "neueste": "l.created_at DESC",
-    "vorgang": "l.lead_nummer DESC NULLS LAST, l.created_at ASC",
+    "nummer_auf": "l.lead_nummer ASC NULLS LAST, l.created_at ASC",
+    "nummer_ab": "l.lead_nummer DESC NULLS LAST, l.created_at ASC",
 }
 _TAB_DEFAULT_SORT_MODE = {
     "neu": "aeltest",
     "bearbeitung": "aeltest",
     "erledigt": "neueste",
-    "alle": "vorgang",
+    "alle": "nummer_ab",
 }
 
 # duplicate/superseded/spam/ausland: nicht Teil der normalen Sales-Warte-
-# schlange (Konzept §4, §A), default ausgeblendet, Toggle "alles anzeigen".
+# schlange (Konzept §4, §A). In Neu/Bearbeitung/Erledigt weiterhin default
+# ausgeblendet (Toggle "alles anzeigen"). Im Tab "Alle" seit 2026-08-18
+# umgekehrt: Default ist AN (der Tab heißt "Alle", zeigt also alles),
+# Toggle blendet dort aus - s. _resolve_dashboard_params.
 _HIDDEN_STATUSES = ["duplikat", "ersetzt", "spam", "ausland"]
 
 # Spaltenfilter (Marco, 2026-08-17, ersetzt die zwei Dropdowns über der
@@ -194,6 +203,18 @@ def _resolve_dashboard_params(request: Request) -> dict:
         # Kein expliziter Wunsch -> Tab-Default, s. _TAB_DEFAULT_SORT_MODE.
         sort_mode, sort_explicit = _TAB_DEFAULT_SORT_MODE.get(tab, "aeltest"), None
 
+    # show_all: derselbe explizit/Default-Mechanismus wie beim Sortiermodus
+    # oben, weil der Default jetzt vom Tab abhängt (Marco, 2026-08-18): "Alle"
+    # zeigt inaktive Zeilen (Duplikate/Ersetzt/Spam/Ausland) standardmäßig,
+    # die anderen drei Tabs blenden sie standardmäßig aus. "0"/"1" statt nur
+    # Anwesenheit des Parameters, damit der Toggle im Tab "Alle" auch explizit
+    # AUSblenden kann (bloßes Fehlen des Parameters hieße sonst überall "Default").
+    alle_param = request.query_params.get("alle")
+    if alle_param in ("0", "1"):
+        show_all, show_all_explicit = alle_param == "1", alle_param
+    else:
+        show_all, show_all_explicit = tab == "alle", None
+
     channel_filter = request.query_params.get("channel") or None
     if channel_filter not in CHANNEL_LABELS:
         channel_filter = None
@@ -214,7 +235,8 @@ def _resolve_dashboard_params(request: Request) -> dict:
 
     return {
         "tab": tab,
-        "show_all": request.query_params.get("alle") == "1",
+        "show_all": show_all,
+        "show_all_explicit": show_all_explicit,
         "search": (request.query_params.get("q") or "").strip() or None,
         "sort_mode": sort_mode,
         "sort_explicit": sort_explicit,
@@ -234,31 +256,13 @@ def dashboard(request: Request):
         return RedirectResponse(url="/admin/login", status_code=303)
 
     p = _resolve_dashboard_params(request)
+    _fetch_only = {k: v for k, v in p.items() if k not in ("sort_explicit", "show_all_explicit")}
 
     with get_connection() as conn:
-        rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
+        rows = _fetch_leads(conn, **_fetch_only)
         positions = _fetch_vorgang_positions(conn, [r["lead_nummer"] for r in rows if r["lead_nummer"] is not None])
         leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
         filter_options = _fetch_filter_options(conn)
-
-    # Blockweise Tönung nur sinnvoll, wenn gleiche Lead-Nummern auch
-    # tatsächlich benachbart stehen - das ist nur im Sortiermodus 'vorgang'
-    # garantiert (Marco, 2026-08-17: Layout-Vorschlag 1, "Blockweise
-    # Tönung"). In anderen Sortierungen wäre eine zufällige Nachbarschaft
-    # zweier gleicher Nummern eine irreführende Gruppierung - dort gilt
-    # jede Zeile als eigener Block. vorgang_block_letzte markiert die
-    # letzte Zeile eines Blocks: nur dort zieht das Template den normalen
-    # Trennstrich, dazwischen verschmelzen die Zeilen zu einem sichtbaren
-    # Block (s. Layout-Vorschlag).
-    gruppiert = p["sort_mode"] == "vorgang"
-    block_index = -1
-    for i, lead in enumerate(leads):
-        ist_blockstart = i == 0 or not gruppiert or lead["lead_nummer"] != leads[i - 1]["lead_nummer"]
-        ist_blockende = i == len(leads) - 1 or not gruppiert or lead["lead_nummer"] != leads[i + 1]["lead_nummer"]
-        if ist_blockstart:
-            block_index += 1
-        lead["vorgang_block_geradzahlig"] = block_index % 2 == 0
-        lead["vorgang_block_letzte"] = ist_blockende
 
     def url(**overrides) -> str:
         return _dashboard_url(**{**p, **overrides})
@@ -282,10 +286,11 @@ def dashboard(request: Request):
         "filter_options": filter_options,
         "ampel_optionen": [(f, _AMPEL_FARBE_LABELS_FILTER[f]) for f in _AMPEL_FARBEN],
         "ampel_labels": _AMPEL_FARBE_LABELS_FILTER,
-        "alle_toggle_url": url(show_all=not p["show_all"]),
+        "alle_toggle_url": url(show_all_explicit="0" if p["show_all"] else "1"),
         "sort_url_aeltest": url(sort_explicit="aeltest"),
         "sort_url_neueste": url(sort_explicit="neueste"),
-        "sort_url_vorgang": url(sort_explicit="vorgang"),
+        "sort_url_nummer_auf": url(sort_explicit="nummer_auf"),
+        "sort_url_nummer_ab": url(sort_explicit="nummer_ab"),
         "clear_filters_url": url(
             search=None, channel_filter=None, bundesland_filter=None,
             ampel_filter=None, ort_filter=None, status_filter=None, zugewiesen_filter=None,
@@ -300,7 +305,7 @@ def dashboard(request: Request):
 def _dashboard_url(
     *,
     tab: str,
-    show_all: bool,
+    show_all_explicit: str | None,
     search: str | None,
     sort_explicit: str | None,
     channel_filter: str | None = None,
@@ -310,11 +315,14 @@ def _dashboard_url(
     status_filter: str | None = None,
     zugewiesen_filter: str | None = None,
     path: str = "/admin",
-    **_ignored,  # sort_mode u.ä. aus p durchgereicht, hier irrelevant
+    **_ignored,  # sort_mode/show_all u.ä. aus p durchgereicht, hier irrelevant
 ) -> str:
     params: list[tuple[str, str]] = [("tab", tab)]
-    if show_all:
-        params.append(("alle", "1"))
+    if show_all_explicit is not None:
+        # "0"/"1" statt nur bei True zu setzen - im Tab "Alle" muss sich
+        # auch ein explizites Ausblenden (Default dort ist "an") in der URL
+        # ausdrücken lassen, nicht nur ein Einblenden.
+        params.append(("alle", show_all_explicit))
     if sort_explicit:
         params.append(("sort", sort_explicit))
     if search:
@@ -649,7 +657,7 @@ def export_leads_csv(request: Request):
     p = _resolve_dashboard_params(request)
 
     with get_connection() as conn:
-        rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
+        rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k not in ("sort_explicit", "show_all_explicit")})
         positions = _fetch_vorgang_positions(conn, [r["lead_nummer"] for r in rows if r["lead_nummer"] is not None])
         leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
 
