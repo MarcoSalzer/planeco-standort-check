@@ -118,13 +118,13 @@ jetzt in `pytest.ini` (nicht mehr `pyproject.toml`, s. Deploy-Fix oben).
 
 ### Nächste Schritte (von Marco vorgegeben, in dieser Reihenfolge)
 
-1. **Sortierung in die Spaltenüberschriften verlegen.** Lead-Nummer und
+1. ✅ **Sortierung in die Spaltenüberschriften verlegen.** Lead-Nummer und
    Datum werden direkt an der Spaltenüberschrift anklickbar (auf- und
    absteigend), mit sichtbarer Richtungsanzeige (z.B. Pfeil-Symbol). Die
    separaten Sortierlinks im `.sort-row` oberhalb der Tabelle
    (`admin_dashboard.html`) entfallen dafür komplett - auch "Älteste/
    Neueste zuerst" wandert an die Datums-Spaltenüberschrift.
-2. **Widersprüchliche Hinweistexte bei Korrekturketten korrigieren.**
+2. ✅ **Widersprüchliche Hinweistexte bei Korrekturketten korrigieren.**
    Aktuell (`app/admin.py::_decorate_row`, Badges) steht bei der ALTEN
    Version "Ersetzt durch Anfrage vom X" (Link zur neuen) und bei der
    GÜLTIGEN Version "Frühere Version vom X" (Link zur alten) - beide
@@ -133,12 +133,15 @@ jetzt in `pytest.ini` (nicht mehr `pyproject.toml`, s. Deploy-Fix oben).
    korrigieren, dass die Richtung (welche Version ist aktuell, welche
    überholt) direkt am Text ablesbar ist, nicht nur über Kontext/
    Dämpfung erschließbar.
-3. **Google-Maps-Link direkt in die Liste.** Kleines Symbol in der
+3. ✅ **Google-Maps-Link direkt in die Liste.** Kleines Symbol in der
    Ort-Spalte bei Leads mit `lat`/`lon` gesetzt, verlinkt wie in der
    Detailansicht (`_field_groups`, `maps_link`) nach
    `https://maps.google.com/?q={lat},{lon}`. Ohne Koordinaten bleibt die
    Stelle leer (keine Platzhalter-Andeutung). Der bestehende Link in der
-   Detailansicht bleibt zusätzlich bestehen, wird nicht ersetzt.
+   Detailansicht bleibt zusätzlich bestehen, wird nicht ersetzt. Dabei
+   ein Nebenfund behoben (Marco, 2026-08-17): der Detailansicht-Link war
+   reiner Text ohne `<a>`-Tag, nicht klickbar - jetzt echter Link,
+   gleiche Behandlung (neuer Tab) wie das neue Symbol in der Liste.
 4. **Auslandspfad nach Konzept §A.** Eigener, größerer Baustein - nicht
    nebenbei miterledigen. Umfasst: zweite, separate Mail bei
    `in_service_area=false` (`ausland_hinweis_status`-Spalte existiert
@@ -150,9 +153,18 @@ jetzt in `pytest.ini` (nicht mehr `pyproject.toml`, s. Deploy-Fix oben).
    Weitergabe an Partner, Einwilligung nur durch aktive Antwort). Vor dem
    Bauen Konzept §A nochmal vollständig lesen, nicht aus der
    Erinnerung rekonstruieren.
-5. **Landesbauordnungs-Zuordnung als letzter Baustein.** Konzept §C
-   ("Zweite Erweiterung: Bundesland → Landesbauordnung"). Separat NACH
-   Auslandspfad, wie von Marco explizit sortiert.
+5. ~~**Landesbauordnungs-Zuordnung.**~~ **Bewusst gestrichen (Marco,
+   2026-08-17), kein Bauauftrag mehr.** Konzept §C ("Zweite Erweiterung:
+   Bundesland → Landesbauordnung") bleibt als recherchierter Vorschlag im
+   Konzept stehen, wird aber nicht umgesetzt. Begründung (für NOTES.md,
+   Phase 6, unter "was ich weggelassen habe und warum" vormerken): nicht
+   Teil der Aufgabenstellung (die verlangt Standort-Check + Lead-Pipeline,
+   keine Bauordnungs-Auskunft) und keine externe Schnittstelle — ein
+   statisches 16-Einträge-Dictionary ohne API-Anbindung, dessen Nutzen
+   für die Fallstudie in keinem Verhältnis zur Bearbeitungszeit vor der
+   Abgabe steht. Unterscheidet sich damit vom Auslandspfad (Punkt 4):
+   der ist in Pflichtteil 6 (Kanal-/Standort-Auswertung) und in den
+   Beispieldaten der Aufgabe (Adresse im Ausland) tatsächlich verankert.
 6. **Offen aus früheren Runden (Konzept §D):** MX-Prüfung bei
    E-Mail-Validierung (`check_deliverability=True`, DNS-Lookup, ~100ms -
    aktuell bewusst nicht eingebaut, s. `app/core/validation.py`-
@@ -236,7 +248,7 @@ Baustein.
 - [x] **Block (d):** Kandidaten bei `geocode_status='mehrdeutig'` in der Detailansicht (`candidate_summaries()` in `app/core/geocoding.py`, aus bereits gespeichertem `geocode_raw`, kein neuer API-Aufruf) - live mit dem "Lindenweg 3, Neustadt"-Testfall verifiziert. Button "Geocoding wiederholen" je Lead (`retry_one_geocode()`, immer versucht, respektiert aber weiterhin Kontingent/DRY_RUN). Globaler Retry-Button in der Liste (`fetch()`, zeigt verarbeitet/verbleibend direkt an).
 - [x] **18.08., Korrektur nach Marcos Export-Analyse (überholt die "Blockweise Tönung" vom 17.08.):** Gruppen-Einfärbung entfernt - im Standardfilter bestand jede Lead-Nummer-Gruppe ohnehin nur aus einer Zeile, die Farbe war ein bedeutungsloses Zebramuster in einer Farbe (Blau), die wie eine Hervorhebung liest statt wie eine Dämpfung (Fund in docs/FUNDE.md). Ersetzt durch die bereits vorhandene `row-inaktiv`-Regel allein. Tab "Alle" zeigt inaktive Zeilen jetzt standardmäßig (Tab heißt "Alle"), Schalter blendet dort aus statt ein. Lead-Nummer als eigene, in beide Richtungen anklickbare Sortierung (`nummer_auf`/`nummer_ab`), ersetzt den überflüssig gewordenen "vorgang"-Sondermodus. Kompakte einzeilige Ampel-Legende über der Liste. Live geprüft: Nummern 6/12/14/15/17 stehen nach Lead-Nummer sortiert direkt untereinander, exakt eine normal dargestellte Zeile pro Gruppe.
 - [x] **Block (e):** `.github/workflows/retry-cron.yml`, `schedule: */15 * * * *` + `workflow_dispatch`. `curl -sS --fail` gegen `${{ vars.RETRY_URL }}/admin/retry` mit `X-Retry-Secret`-Header. Braucht `RETRY_URL`(Variable)/`RETRY_SECRET`(Secret) in den GitHub-Repo-Einstellungen. YAML-Syntax lokal geprüft, **noch nicht live gegen ein Deployment getestet**.
-- [ ] Auslandspfad (Konzept §A) und Bundesland→Landesbauordnung-Mapping (Konzept §C): s. "Nächste Schritte" Punkt 4/5 oben, mit genauerer Beschreibung als hier.
+- [ ] Auslandspfad (Konzept §A): s. "Nächste Schritte" Punkt 4 oben, mit genauerer Beschreibung als hier. Bundesland→Landesbauordnung-Mapping (Konzept §C) bewusst gestrichen, s. "Nächste Schritte" Punkt 5 oben.
 
 ## Phase 5 — Abnahme (Di, ~2-3h)
 - [ ] Fünf Beispielanfragen vom Handy (fiktive Mails, einmal mit ?utm_source=meta&utm_campaign=test)
