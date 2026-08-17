@@ -431,6 +431,7 @@ def _fetch_leads(
             f"""
             SELECT
                 l.id, l.lead_nummer, l.created_at, l.name, l.name_raw, l.city, l.geo_state, l.geo_country,
+                l.lat, l.lon,
                 l.channel, l.channel_source, l.heard_about, l.status, l.assigned_to,
                 l.is_spam, l.spam_reason, l.in_service_area, l.geocode_status,
                 l.phone_raw, l.phone_valid, l.postal_code, l.street,
@@ -568,13 +569,21 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
             "url": f"/admin/leads/{row['duplicate_of']}",
         })
     if row["superseded_by"] and row["superseded_by_created_at"] is not None:
+        # Diese Zeile ist die ALTE Seite der Kette (row_inaktiv=True) - der
+        # Text beginnt bewusst mit dem Status DIESER Zeile ("Veraltet"),
+        # nicht nur mit dem Verweisziel, damit die Richtung am Text selbst
+        # ablesbar ist und nicht nur über die Dämpfung/den Kontext erschlossen
+        # werden muss (Marco, TODO Punkt 2: beide alten Texte zeigten
+        # aufeinander, ohne dass am Text erkennbar war, welche Seite gilt).
         badges.append({
-            "text": f"Ersetzt durch Anfrage vom {format_berlin_datetime(row['superseded_by_created_at'])}",
+            "text": f"Veraltet – aktuelle Version vom {format_berlin_datetime(row['superseded_by_created_at'])}",
             "url": f"/admin/leads/{row['superseded_by']}",
         })
     if row["vorgaenger_id"] and row["vorgaenger_created_at"] is not None:
+        # Spiegelbildlich: diese Zeile ist die GÜLTIGE Seite, Text beginnt
+        # entsprechend mit "Aktuelle Version".
         badges.append({
-            "text": f"Frühere Version vom {format_berlin_datetime(row['vorgaenger_created_at'])}",
+            "text": f"Aktuelle Version – frühere Anfrage vom {format_berlin_datetime(row['vorgaenger_created_at'])}",
             "url": f"/admin/leads/{row['vorgaenger_id']}",
         })
     if row["kontakt_bekannt"]:
@@ -584,6 +593,14 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
     if row["geocode_status"] == "mehrdeutig":
         badges.append({"text": "Adresse mehrdeutig", "url": None})
 
+    # Maps-Link auch in der Liste (Marco, TODO Punkt 3) - identische Regel
+    # wie in der Detailansicht (_field_groups): nur bei vorhandenen
+    # Koordinaten, sonst None statt einer Platzhalter-Andeutung. Das Template
+    # blendet die Stelle in der Ort-Spalte dann komplett aus.
+    maps_link = None
+    if row["lat"] is not None and row["lon"] is not None:
+        maps_link = f"https://maps.google.com/?q={row['lat']},{row['lon']}"
+
     return {
         **row,
         "created_at_display": format_berlin_datetime(row["created_at"]),
@@ -591,6 +608,7 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
         "ampel_farbe": row["traffic_light"],
         "ampel_grund": row["traffic_light_reason"],
         "badges": badges,
+        "maps_link": maps_link,
         "row_inaktiv": row["status"] in _INAKTIVE_STATUSWERTE,
         "zeile_defekt": False,
     }
@@ -614,6 +632,7 @@ def _defekte_zeile(row: dict) -> dict:
         "ampel_farbe": "defekt",
         "ampel_grund": "Diese Zeile konnte nicht korrekt angezeigt werden - Details im Server-Log.",
         "badges": [],
+        "maps_link": None,
         "row_inaktiv": False,
         "zeile_defekt": True,
     }

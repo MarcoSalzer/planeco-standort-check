@@ -144,28 +144,24 @@
       opacity: 0.85;
     }
 
-    .sort-row {
-      display: flex;
+    th.sortable a {
+      display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 1rem;
-      font-size: 0.85rem;
+      gap: 0.3rem;
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer;
     }
-    .sort-row .label {
+    th.sortable a:hover {
+      color: var(--focus);
+    }
+    th.sortable .sort-arrow {
+      font-size: 0.7rem;
       color: var(--muted);
     }
-    .sort-row a {
-      text-decoration: none;
-      color: var(--text);
-      padding: 0.25rem 0.6rem;
-      border-radius: 0.35rem;
-      border: 1px solid var(--border);
-    }
-    .sort-row a.active {
-      background: var(--focus);
-      border-color: var(--focus);
-      color: #fff;
-      font-weight: 600;
+    th.sortable[aria-sort="ascending"] .sort-arrow,
+    th.sortable[aria-sort="descending"] .sort-arrow {
+      color: var(--focus);
     }
 
     .export-row {
@@ -247,6 +243,11 @@
     }
     table.leads td a.badge {
       font-weight: 400;
+    }
+    table.leads td a.maps-icon {
+      font-weight: 400;
+      text-decoration: none;
+      margin-left: 0.3rem;
     }
     table.leads tr.row-inaktiv {
       opacity: 0.55;
@@ -402,14 +403,6 @@
       </a>
     </div>
 
-    <div class="sort-row">
-      <span class="label">Sortierung:</span>
-      <a href="{{ sort_url_aeltest }}" class="{{ 'active' if sort_mode == 'aeltest' else '' }}">Älteste zuerst</a>
-      <a href="{{ sort_url_neueste }}" class="{{ 'active' if sort_mode == 'neueste' else '' }}">Neueste zuerst</a>
-      <a href="{{ sort_url_nummer_auf }}" class="{{ 'active' if sort_mode == 'nummer_auf' else '' }}">Lead-Nr. aufsteigend</a>
-      <a href="{{ sort_url_nummer_ab }}" class="{{ 'active' if sort_mode == 'nummer_ab' else '' }}">Lead-Nr. absteigend</a>
-    </div>
-
     <p class="ampel-legende">
       <span class="eintrag"><span class="dot gruen" aria-hidden="true"></span>Bearbeitbar</span>
       <span class="eintrag"><span class="dot gelb" aria-hidden="true"></span>Prüfen</span>
@@ -434,8 +427,18 @@
       <table class="leads">
         <thead>
           <tr>
-            <th>Lead-Nr.</th>
-            <th>Datum</th>
+            <th class="sortable" aria-sort="{{ 'ascending' if sort_mode == 'nummer_auf' else ('descending' if sort_mode == 'nummer_ab' else 'none') }}">
+              <a href="{{ sort_url_nummer_ab if sort_mode == 'nummer_auf' else sort_url_nummer_auf }}" aria-label="Nach Lead-Nummer sortieren, aktuell {{ 'aufsteigend' if sort_mode == 'nummer_auf' else ('absteigend' if sort_mode == 'nummer_ab' else 'unsortiert') }}">
+                Lead-Nr.
+                <span class="sort-arrow" aria-hidden="true">{% if sort_mode == 'nummer_auf' %}▲{% elif sort_mode == 'nummer_ab' %}▼{% else %}⇅{% endif %}</span>
+              </a>
+            </th>
+            <th class="sortable" aria-sort="{{ 'ascending' if sort_mode == 'aeltest' else ('descending' if sort_mode == 'neueste' else 'none') }}">
+              <a href="{{ sort_url_neueste if sort_mode == 'aeltest' else sort_url_aeltest }}" aria-label="Nach Datum sortieren, aktuell {{ 'älteste zuerst' if sort_mode == 'aeltest' else ('neueste zuerst' if sort_mode == 'neueste' else 'unsortiert') }}">
+                Datum
+                <span class="sort-arrow" aria-hidden="true">{% if sort_mode == 'aeltest' %}▲{% elif sort_mode == 'neueste' %}▼{% else %}⇅{% endif %}</span>
+              </a>
+            </th>
             <th>Name</th>
             <th class="filterable">
               Ort
@@ -508,7 +511,10 @@
                 <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span>{{ lead.ampel_grund }}
               </div>
             </td>
-            <td>{{ lead.city }}</td>
+            <td>
+              {{ lead.city }}
+              {% if lead.maps_link %}<a class="maps-icon" href="{{ lead.maps_link }}" target="_blank" rel="noopener noreferrer" aria-label="{{ lead.city }} auf Google Maps öffnen" title="Auf Google Maps öffnen">📍</a>{% endif %}
+            </td>
             <td>{{ lead.geo_state or "–" }}</td>
             <td class="col-ampel">
               <div class="ampel-cell">
