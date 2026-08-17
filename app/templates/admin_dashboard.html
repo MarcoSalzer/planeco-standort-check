@@ -244,6 +244,39 @@
     table.leads tr.row-inaktiv:hover {
       opacity: 0.85;
     }
+    table.leads tr.row-defekt td {
+      background: #fdecef;
+    }
+    table.leads tr.row-defekt:hover td {
+      background: #fbdde2;
+    }
+    table.leads tr.vorgang-block-b td {
+      background: #eef3f9;
+    }
+    table.leads tr.vorgang-block-b:hover td {
+      background: #e2ebf6;
+    }
+    table.leads tr.vorgang-nicht-letzte td {
+      border-bottom-color: transparent;
+    }
+
+    th.filterable {
+      white-space: normal;
+    }
+    th.filterable select {
+      display: block;
+      margin-top: 0.3rem;
+      max-width: 9rem;
+      font-size: 0.72rem;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
+      padding: 0.2rem 0.3rem;
+      border: 1px solid var(--border);
+      border-radius: 0.3rem;
+      background: #fff;
+      color: var(--text);
+    }
 
     .dot {
       display: inline-block;
@@ -258,6 +291,10 @@
     .dot.rot { background: var(--dot-rot); }
     .dot.grau { background: var(--dot-grau); }
     .dot.schwarz { background: var(--dot-schwarz); }
+    .dot.defekt {
+      background-image: repeating-linear-gradient(45deg, #ad1457, #ad1457 2px, #fff 2px, #fff 4px);
+      border: 1px solid #ad1457;
+    }
 
     .ampel-cell, .ampel-mobile {
       display: flex;
@@ -331,26 +368,14 @@
     </nav>
 
     <div class="toolbar">
-      <form class="search" method="get" action="/admin">
+      <form class="search" id="filterform" method="get" action="/admin">
         <input type="hidden" name="tab" value="{{ active_tab }}">
         {% if show_all %}<input type="hidden" name="alle" value="1">{% endif %}
-        <input type="hidden" name="sort" value="{{ 'aeltest' if sort_oldest_first else 'neueste' }}">
+        <input type="hidden" name="sort" value="{{ sort_mode }}">
         <input type="search" name="q" value="{{ search }}" placeholder="Suche nach Name, E-Mail, Telefon oder Ort" aria-label="Lead-Suche">
-        <select name="channel" aria-label="Nach Kanal filtern">
-          <option value="">Alle Kanäle</option>
-          {% for value, label in channel_options.items() %}
-          <option value="{{ value }}" {{ "selected" if value == channel_filter else "" }}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <select name="bundesland" aria-label="Nach Bundesland filtern">
-          <option value="">Alle Bundesländer</option>
-          {% for b in bundesland_options %}
-          <option value="{{ b }}" {{ "selected" if b == bundesland_filter else "" }}>{{ b }}</option>
-          {% endfor %}
-        </select>
         <button type="submit">Filtern</button>
       </form>
-      {% if search or channel_filter or bundesland_filter %}
+      {% if search or channel_filter or bundesland_filter or ampel_filter or ort_filter or status_filter or zugewiesen_filter %}
       <a class="toggle-link" href="{{ clear_filters_url }}">Filter zurücksetzen</a>
       {% endif %}
       <a class="toggle-link" href="{{ alle_toggle_url }}">
@@ -360,8 +385,9 @@
 
     <div class="sort-row">
       <span class="label">Sortierung:</span>
-      <a href="{{ sort_url_aeltest }}" class="{{ 'active' if sort_oldest_first else '' }}">Älteste zuerst</a>
-      <a href="{{ sort_url_neueste }}" class="{{ 'active' if not sort_oldest_first else '' }}">Neueste zuerst</a>
+      <a href="{{ sort_url_aeltest }}" class="{{ 'active' if sort_mode == 'aeltest' else '' }}">Älteste zuerst</a>
+      <a href="{{ sort_url_neueste }}" class="{{ 'active' if sort_mode == 'neueste' else '' }}">Neueste zuerst</a>
+      <a href="{{ sort_url_vorgang }}" class="{{ 'active' if sort_mode == 'vorgang' else '' }}">Nach Vorgang (zusammengehörige Zeilen gruppiert)</a>
     </div>
 
     <div class="export-row">
@@ -377,18 +403,71 @@
             <th>Lead-Nr.</th>
             <th>Datum</th>
             <th>Name</th>
-            <th>Ort</th>
-            <th>Bundesland</th>
-            <th class="col-ampel">Ampel</th>
-            <th>Kanal</th>
-            <th>Status</th>
-            <th>Zugewiesen</th>
+            <th class="filterable">
+              Ort
+              <select name="ort" form="filterform" onchange="this.form.submit()" aria-label="Nach Ort filtern">
+                <option value="">Alle</option>
+                {% for wert in filter_options.ort_filter %}
+                <option value="{{ wert }}" {{ "selected" if wert == ort_filter else "" }}>{{ wert }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th class="filterable">
+              Bundesland
+              <select name="bundesland" form="filterform" onchange="this.form.submit()" aria-label="Nach Bundesland filtern">
+                <option value="">Alle</option>
+                {% for wert in filter_options.bundesland_filter %}
+                <option value="{{ wert }}" {{ "selected" if wert == bundesland_filter else "" }}>{{ wert }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th class="col-ampel filterable">
+              Ampel
+              <select name="ampel" form="filterform" onchange="this.form.submit()" aria-label="Nach Ampel filtern">
+                <option value="">Alle</option>
+                {% for wert, label in ampel_optionen %}
+                <option value="{{ wert }}" {{ "selected" if wert == ampel_filter else "" }}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th class="filterable">
+              Kanal
+              <select name="channel" form="filterform" onchange="this.form.submit()" aria-label="Nach Kanal filtern">
+                <option value="">Alle</option>
+                {% for wert in filter_options.channel_filter %}
+                <option value="{{ wert }}" {{ "selected" if wert == channel_filter else "" }}>{{ channel_labels.get(wert, wert) }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th class="filterable">
+              Status
+              <select name="status" form="filterform" onchange="this.form.submit()" aria-label="Nach Status filtern">
+                <option value="">Alle</option>
+                {% for wert in filter_options.status_filter %}
+                <option value="{{ wert }}" {{ "selected" if wert == status_filter else "" }}>{{ status_label(wert) }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th class="filterable">
+              Zugewiesen
+              <select name="zugewiesen" form="filterform" onchange="this.form.submit()" aria-label="Nach Zuweisung filtern">
+                <option value="">Alle</option>
+                {% for wert in filter_options.zugewiesen_filter %}
+                <option value="{{ wert }}" {{ "selected" if wert == zugewiesen_filter else "" }}>{{ wert }}</option>
+                {% endfor %}
+              </select>
+            </th>
             <th>Hinweise</th>
           </tr>
         </thead>
         <tbody>
           {% for lead in leads %}
-          <tr class="{{ 'row-inaktiv' if lead.row_inaktiv else '' }}">
+          <tr class="
+            {{- ' row-inaktiv' if lead.row_inaktiv }}
+            {{- ' row-defekt' if lead.zeile_defekt }}
+            {{- ' vorgang-block-b' if lead.vorgang_block_geradzahlig is defined and not lead.vorgang_block_geradzahlig }}
+            {{- ' vorgang-nicht-letzte' if lead.vorgang_block_letzte is defined and not lead.vorgang_block_letzte }}
+          ">
             <td>{{ lead.lead_nummer if lead.lead_nummer is not none else "–" }}</td>
             <td>{{ lead.created_at_display }}</td>
             <td>
@@ -423,12 +502,16 @@
     </div>
     {% else %}
     <div class="empty-state">
-      {% if search or channel_filter or bundesland_filter %}
+      {% if search or channel_filter or bundesland_filter or ampel_filter or ort_filter or status_filter or zugewiesen_filter %}
       <p>
         Keine Treffer in {{ tabs[active_tab] }}
         {%- if search %} für „{{ search }}“{% endif -%}
+        {%- if ort_filter %} in Ort „{{ ort_filter }}“{% endif -%}
+        {%- if bundesland_filter %} in „{{ bundesland_filter }}“{% endif -%}
+        {%- if ampel_filter %} mit Ampel „{{ ampel_labels.get(ampel_filter, ampel_filter) }}“{% endif -%}
         {%- if channel_filter %} im Kanal „{{ channel_labels.get(channel_filter, channel_filter) }}“{% endif -%}
-        {%- if bundesland_filter %} in „{{ bundesland_filter }}“{% endif -%}.
+        {%- if status_filter %} im Status „{{ status_label(status_filter) }}“{% endif -%}
+        {%- if zugewiesen_filter %} zugewiesen an „{{ zugewiesen_filter }}“{% endif -%}.
       </p>
       <p><a href="{{ clear_filters_url }}">Filter zurücksetzen</a></p>
       {% else %}

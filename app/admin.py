@@ -36,6 +36,7 @@ from app.core.display import (
     format_duration_de,
     status_label,
 )
+from app.core.geocoding import GERMAN_STATES
 from app.core.spam import SPAM_REASON_LABELS
 from app.db import get_connection, insert_event
 from app.mail import send_confirmation_email
@@ -66,32 +67,44 @@ _TAB_LABELS: dict[str, str] = {
 _DEFAULT_TAB = "neu"
 
 # Sortierung: Neu/Bearbeitung sind eine Warteschlange (älteste zuerst
-# abarbeiten), Erledigt/Alle sind Nachschlagewerke (neueste zuerst - man
-# sucht meist die letzte Aktivität). Per ?sort=aeltest|neueste explizit
-# umschaltbar; ohne den Parameter gilt der Tab-Default (Marco, 2026-08-16).
-_TAB_DEFAULT_SORT_OLDEST_FIRST = {
-    "neu": True,
-    "bearbeitung": True,
-    "erledigt": False,
-    "alle": False,
+# abarbeiten). Alle gruppiert stattdessen nach Vorgang (Lead-Nummer
+# absteigend, innerhalb derselben Nummer Eingangszeit aufsteigend) - dort
+# liegen zusammengehörige Zeilen oft zeitlich weit auseinander, weil
+# dazwischen andere Anfragen eingegangen sind (Marco, 2026-08-17: "Thomas
+# Ahrens hat zweimal die 12... stehen deshalb in der Liste nicht
+# nebeneinander"). Erledigt bleibt neueste zuerst (Nachschlagewerk) - eine
+# 'ersetzt'-Zeile kann dort nie erscheinen (Tab-Status-Filter lässt nur
+# qualifiziert/disqualifiziert zu), das Problem tritt dort also nicht auf.
+# Per ?sort=aeltest|neueste|vorgang explizit umschaltbar, sonst Tab-Default.
+_SORT_MODE_SQL = {
+    "aeltest": "l.created_at ASC",
+    "neueste": "l.created_at DESC",
+    "vorgang": "l.lead_nummer DESC NULLS LAST, l.created_at ASC",
+}
+_TAB_DEFAULT_SORT_MODE = {
+    "neu": "aeltest",
+    "bearbeitung": "aeltest",
+    "erledigt": "neueste",
+    "alle": "vorgang",
 }
 
 # duplicate/superseded/spam/ausland: nicht Teil der normalen Sales-Warte-
 # schlange (Konzept §4, §A), default ausgeblendet, Toggle "alles anzeigen".
 _HIDDEN_STATUSES = ["duplikat", "ersetzt", "spam", "ausland"]
 
-# Feste Optionslisten für die zwei Dropdown-Filter über der Liste (Marco,
-# 2026-08-16: "nur diese beiden, keine Filter pro Spalte"). Fest statt per
-# DISTINCT-Query aus der DB abgeleitet, damit der Filter schon vor Phase 4
-# vollständig nutzbar ist (aktuell hat kein Lead ein geo_state, die Liste
-# wäre sonst leer) und damit "kommt aktuell nicht vor" nicht mit "gibt es
-# nicht" verwechselt wird.
-_BUNDESLAENDER = [
-    "Baden-Württemberg", "Bayern", "Berlin", "Brandenburg", "Bremen", "Hamburg",
-    "Hessen", "Mecklenburg-Vorpommern", "Niedersachsen", "Nordrhein-Westfalen",
-    "Rheinland-Pfalz", "Saarland", "Sachsen", "Sachsen-Anhalt",
-    "Schleswig-Holstein", "Thüringen",
-]
+# Spaltenfilter (Marco, 2026-08-17, ersetzt die zwei Dropdowns über der
+# Liste): Ort/Bundesland/Kanal/Status/Zugewiesen werden aus den tatsächlich
+# vorhandenen Werten befüllt (_distinct_values, unten) - "kommt aktuell
+# nicht vor" soll nicht mit "gibt es nicht" verwechselt werden. Ampel ist
+# die eine Ausnahme: keine echte Spalte (traffic_light wird erst mit
+# Block c bei jedem Schreibvorgang befüllt), deshalb hier eine feste,
+# kleine Liste statt einer DISTINCT-Query. 'defekt' bewusst dabei - damit
+# genau die Zeilen, die Punkt 1 auffängt, sich gezielt herausfiltern lassen.
+_AMPEL_FARBEN = ["gruen", "gelb", "rot", "grau", "schwarz", "defekt"]
+_AMPEL_FARBE_LABELS_FILTER = {
+    "gruen": "Grün", "gelb": "Gelb", "rot": "Rot", "grau": "Grau",
+    "schwarz": "Schwarz", "defekt": "Fehler (Anzeige defekt)",
+}
 
 # Per Hand im Dashboard setzbare status-Werte (Aktionen, Konzept §6).
 # 'duplikat'/'ersetzt'/'ausland' bewusst NICHT dabei: die entstehen nur
@@ -175,29 +188,42 @@ def _resolve_dashboard_params(request: Request) -> dict:
         tab = _DEFAULT_TAB
 
     sort_param = request.query_params.get("sort")
-    if sort_param == "neueste":
-        sort_oldest_first, sort_explicit = False, "neueste"
-    elif sort_param == "aeltest":
-        sort_oldest_first, sort_explicit = True, "aeltest"
+    if sort_param in _SORT_MODE_SQL:
+        sort_mode, sort_explicit = sort_param, sort_param
     else:
-        # Kein expliziter Wunsch -> Tab-Default, s. _TAB_DEFAULT_SORT_OLDEST_FIRST.
-        sort_oldest_first, sort_explicit = _TAB_DEFAULT_SORT_OLDEST_FIRST.get(tab, True), None
+        # Kein expliziter Wunsch -> Tab-Default, s. _TAB_DEFAULT_SORT_MODE.
+        sort_mode, sort_explicit = _TAB_DEFAULT_SORT_MODE.get(tab, "aeltest"), None
 
     channel_filter = request.query_params.get("channel") or None
     if channel_filter not in CHANNEL_LABELS:
         channel_filter = None
     bundesland_filter = request.query_params.get("bundesland") or None
-    if bundesland_filter not in _BUNDESLAENDER:
+    if bundesland_filter not in GERMAN_STATES:
         bundesland_filter = None
+    ampel_filter = request.query_params.get("ampel") or None
+    if ampel_filter not in _AMPEL_FARBEN:
+        ampel_filter = None
+    # ort/status/zugewiesen: keine feste Werteliste zum Validieren gegen -
+    # Ort und Zugewiesen sind Freitext, und für Status extra eine Kopie der
+    # CHECK-Constraint zu pflegen wäre genau das Muster, das erst kürzlich
+    # zum 'simuliert'-Fund geführt hat (s. docs/FUNDE.md). Ein nicht
+    # passender Wert liefert schlicht null Treffer, kein Fehler.
+    ort_filter = (request.query_params.get("ort") or "").strip() or None
+    status_filter = (request.query_params.get("status") or "").strip() or None
+    zugewiesen_filter = (request.query_params.get("zugewiesen") or "").strip() or None
 
     return {
         "tab": tab,
         "show_all": request.query_params.get("alle") == "1",
         "search": (request.query_params.get("q") or "").strip() or None,
-        "sort_oldest_first": sort_oldest_first,
+        "sort_mode": sort_mode,
         "sort_explicit": sort_explicit,
         "channel_filter": channel_filter,
         "bundesland_filter": bundesland_filter,
+        "ampel_filter": ampel_filter,
+        "ort_filter": ort_filter,
+        "status_filter": status_filter,
+        "zugewiesen_filter": zugewiesen_filter,
     }
 
 
@@ -211,7 +237,36 @@ def dashboard(request: Request):
 
     with get_connection() as conn:
         rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
-        leads = [_decorate_row(conn, row) for row in rows]
+        positions = _fetch_vorgang_positions(conn, [r["lead_nummer"] for r in rows if r["lead_nummer"] is not None])
+        leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
+        filter_options = _fetch_filter_options(conn)
+
+    # Ampel ist keine gespeicherte Spalte (traffic_light erst mit Block c
+    # befüllt) - der Filter kann deshalb erst NACH dem Dekorieren greifen,
+    # nicht als SQL-WHERE wie die übrigen fünf Spaltenfilter. Bei der
+    # Datenmenge dieses Projekts unproblematisch (s. Kommentar in
+    # _fetch_leads zum LIMIT).
+    if p["ampel_filter"]:
+        leads = [lead for lead in leads if lead["ampel_farbe"] == p["ampel_filter"]]
+
+    # Blockweise Tönung nur sinnvoll, wenn gleiche Lead-Nummern auch
+    # tatsächlich benachbart stehen - das ist nur im Sortiermodus 'vorgang'
+    # garantiert (Marco, 2026-08-17: Layout-Vorschlag 1, "Blockweise
+    # Tönung"). In anderen Sortierungen wäre eine zufällige Nachbarschaft
+    # zweier gleicher Nummern eine irreführende Gruppierung - dort gilt
+    # jede Zeile als eigener Block. vorgang_block_letzte markiert die
+    # letzte Zeile eines Blocks: nur dort zieht das Template den normalen
+    # Trennstrich, dazwischen verschmelzen die Zeilen zu einem sichtbaren
+    # Block (s. Layout-Vorschlag).
+    gruppiert = p["sort_mode"] == "vorgang"
+    block_index = -1
+    for i, lead in enumerate(leads):
+        ist_blockstart = i == 0 or not gruppiert or lead["lead_nummer"] != leads[i - 1]["lead_nummer"]
+        ist_blockende = i == len(leads) - 1 or not gruppiert or lead["lead_nummer"] != leads[i + 1]["lead_nummer"]
+        if ist_blockstart:
+            block_index += 1
+        lead["vorgang_block_geradzahlig"] = block_index % 2 == 0
+        lead["vorgang_block_letzte"] = ist_blockende
 
     def url(**overrides) -> str:
         return _dashboard_url(**{**p, **overrides})
@@ -225,17 +280,27 @@ def dashboard(request: Request):
         "tab_urls": tab_urls,
         "show_all": p["show_all"],
         "search": p["search"] or "",
-        "sort_oldest_first": p["sort_oldest_first"],
+        "sort_mode": p["sort_mode"],
         "channel_filter": p["channel_filter"] or "",
         "bundesland_filter": p["bundesland_filter"] or "",
-        "channel_options": CHANNEL_LABELS,
-        "bundesland_options": _BUNDESLAENDER,
+        "ampel_filter": p["ampel_filter"] or "",
+        "ort_filter": p["ort_filter"] or "",
+        "status_filter": p["status_filter"] or "",
+        "zugewiesen_filter": p["zugewiesen_filter"] or "",
+        "filter_options": filter_options,
+        "ampel_optionen": [(f, _AMPEL_FARBE_LABELS_FILTER[f]) for f in _AMPEL_FARBEN],
+        "ampel_labels": _AMPEL_FARBE_LABELS_FILTER,
         "alle_toggle_url": url(show_all=not p["show_all"]),
         "sort_url_aeltest": url(sort_explicit="aeltest"),
         "sort_url_neueste": url(sort_explicit="neueste"),
-        "clear_filters_url": url(search=None, channel_filter=None, bundesland_filter=None),
+        "sort_url_vorgang": url(sort_explicit="vorgang"),
+        "clear_filters_url": url(
+            search=None, channel_filter=None, bundesland_filter=None,
+            ampel_filter=None, ort_filter=None, status_filter=None, zugewiesen_filter=None,
+        ),
         "csv_export_url": url(path="/admin/export.csv"),
         "channel_labels": CHANNEL_LABELS,
+        "status_label": status_label,
     }
     return templates.TemplateResponse(request=request, name="admin_dashboard.html", context=context)
 
@@ -248,8 +313,12 @@ def _dashboard_url(
     sort_explicit: str | None,
     channel_filter: str | None = None,
     bundesland_filter: str | None = None,
+    ampel_filter: str | None = None,
+    ort_filter: str | None = None,
+    status_filter: str | None = None,
+    zugewiesen_filter: str | None = None,
     path: str = "/admin",
-    **_ignored,  # sort_oldest_first u.ä. aus p durchgereicht, hier irrelevant
+    **_ignored,  # sort_mode u.ä. aus p durchgereicht, hier irrelevant
 ) -> str:
     params: list[tuple[str, str]] = [("tab", tab)]
     if show_all:
@@ -262,6 +331,14 @@ def _dashboard_url(
         params.append(("channel", channel_filter))
     if bundesland_filter:
         params.append(("bundesland", bundesland_filter))
+    if ampel_filter:
+        params.append(("ampel", ampel_filter))
+    if ort_filter:
+        params.append(("ort", ort_filter))
+    if status_filter:
+        params.append(("status", status_filter))
+    if zugewiesen_filter:
+        params.append(("zugewiesen", zugewiesen_filter))
     return f"{path}?" + urlencode(params)
 
 
@@ -277,9 +354,13 @@ def _fetch_leads(
     tab: str,
     show_all: bool,
     search: str | None,
-    sort_oldest_first: bool,
+    sort_mode: str,
     channel_filter: str | None = None,
     bundesland_filter: str | None = None,
+    ampel_filter: str | None = None,  # hier ungenutzt, greift erst nach dem Dekorieren (dashboard()) - nur Teil von p
+    ort_filter: str | None = None,
+    status_filter: str | None = None,
+    zugewiesen_filter: str | None = None,
 ) -> list[dict]:
     conditions: list[str] = []
     params: dict = {}
@@ -315,12 +396,25 @@ def _fetch_leads(
         conditions.append("l.geo_state = %(bundesland_filter)s")
         params["bundesland_filter"] = bundesland_filter
 
+    if ort_filter:
+        conditions.append("l.city = %(ort_filter)s")
+        params["ort_filter"] = ort_filter
+
+    if status_filter:
+        conditions.append("l.status = %(status_filter)s")
+        params["status_filter"] = status_filter
+
+    if zugewiesen_filter:
+        conditions.append("l.assigned_to = %(zugewiesen_filter)s")
+        params["zugewiesen_filter"] = zugewiesen_filter
+
     where_sql = " AND ".join(conditions) if conditions else "true"
-    order_sql = "l.created_at ASC" if sort_oldest_first else "l.created_at DESC"
+    order_sql = _SORT_MODE_SQL[sort_mode]
 
     # Alle interpolierten SQL-Fragmente oben stammen aus fest codierten
     # Strings (Tab-/Sort-Auswahl per Dictionary-Lookup) - Nutzereingaben
-    # (search, Status-Listen) laufen ausschließlich über %()s-Parameter.
+    # (search, Status-Listen, Filterwerte) laufen ausschließlich über
+    # %()s-Parameter.
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             f"""
@@ -357,9 +451,45 @@ def _fetch_leads(
             ORDER BY {order_sql}
             LIMIT 500
             """,
+            # Der Ampel-Filter (dashboard()) greift NACH diesem LIMIT, da
+            # Ampel keine gespeicherte Spalte ist - ein Treffer jenseits der
+            # ersten 500 sortierten Zeilen würde ihn verpassen. Bei der
+            # Datenmenge dieses Projekts (aktuell < 50 Leads) nicht
+            # relevant; Block c (traffic_light als echte Spalte) würde das
+            # sauber auflösen.
             params,
         )
         return cur.fetchall()
+
+
+# Spalte -> Anzeigename für die Spaltenfilter-Header (Marco, 2026-08-17,
+# ersetzt die zwei Dropdowns über der Liste). Ampel bewusst nicht dabei -
+# s. _AMPEL_FARBEN oben, keine echte Spalte.
+_SPALTENFILTER: dict[str, str] = {
+    "ort_filter": "city",
+    "bundesland_filter": "geo_state",
+    "channel_filter": "channel",
+    "status_filter": "status",
+    "zugewiesen_filter": "assigned_to",
+}
+
+
+def _distinct_values(conn: psycopg.Connection, column: str) -> list[str]:
+    # column kommt ausschließlich aus _SPALTENFILTER oben (feste, im Code
+    # stehende Werte) - f-String-Interpolation des Spaltennamens ist damit
+    # unproblematisch, wie an anderen Stellen in dieser Datei.
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT {column} FROM leads WHERE {column} IS NOT NULL ORDER BY {column}")
+        return [r[0] for r in cur.fetchall()]
+
+
+def _fetch_filter_options(conn: psycopg.Connection) -> dict[str, list[str]]:
+    """Optionen für die sechs Spaltenfilter, aus den tatsächlich
+    vorhandenen Werten (Marco, 2026-08-17: "kommt aktuell nicht vor" soll
+    nicht mit "gibt es nicht" verwechselt werden) - global über alle Leads,
+    nicht auf den aktuellen Tab/andere Filter eingeschränkt, damit sich die
+    Optionen nicht kaskadierend verändern, während man filtert."""
+    return {param: _distinct_values(conn, column) for param, column in _SPALTENFILTER.items()}
 
 
 # Status-Werte, die keine eigenständig zu bearbeitende Anfrage sind, sondern
@@ -369,51 +499,38 @@ def _fetch_leads(
 _INAKTIVE_STATUSWERTE = {"duplikat", "ersetzt", "spam", "ausland"}
 
 
-def _kette_info(conn: psycopg.Connection, lead_id: str) -> tuple[int, int] | None:
-    """(Position, Gesamtlänge) in der superseded_by-Kette, oder None wenn
-    dieser Lead weder Vorgänger noch Nachfolger hat. Erst rückwärts zur
-    Wurzel (ältester Vorgänger), dann von dort vorwärts die ganze Kette
-    einsammeln - dieselbe Wurzel-Logik wie in _fetch_ancestor_chain, nur
-    zusätzlich mit Vorwärtslauf für die Gesamtlänge."""
-    root_id = lead_id
-    for _ in range(50):
-        row = conn.execute("SELECT id FROM leads WHERE superseded_by = %(id)s", {"id": root_id}).fetchone()
-        if row is None:
-            break
-        root_id = str(row[0])
-
-    chain_ids = [root_id]
-    current_id = root_id
-    for _ in range(50):
-        row = conn.execute("SELECT superseded_by FROM leads WHERE id = %(id)s", {"id": current_id}).fetchone()
-        if row is None or row[0] is None:
-            break
-        current_id = str(row[0])
-        chain_ids.append(current_id)
-
-    if len(chain_ids) < 2:
-        return None
-    return chain_ids.index(lead_id) + 1, len(chain_ids)
-
-
-def _duplikatgruppe_info(conn: psycopg.Connection, lead_id: str, duplicate_of) -> tuple[int, int] | None:
-    """(Position, Gesamtgröße) der Duplikatgruppe (Original + alle F2-
-    Duplikate, chronologisch), oder None wenn dieser Lead weder Original
-    mit Duplikaten noch selbst ein Duplikat ist."""
-    wurzel = str(duplicate_of) if duplicate_of else lead_id
+def _fetch_vorgang_positions(conn: psycopg.Connection, lead_nummern: list[int]) -> dict[str, tuple[int, int]]:
+    """id (str) -> (Position, Gesamtgröße) innerhalb desselben Vorgangs
+    (lead_nummer) - über ALLE Zeilen mit dieser Nummer hinweg, unabhängig
+    von Tab/Filter/Suche der aktuellen Ansicht. Absichtlich NICHT aus der
+    gefilterten Haupt-Query abgeleitet (z.B. per Fenster-Funktion dort):
+    ein gefilterter Tab würde sonst eine falsch kleine Gruppengröße zeigen
+    - "Version 1 von 1" für eine Zeile, die tatsächlich Teil einer
+    3-zeiligen Korrekturkette ist, nur weil die anderen zwei Zeilen im
+    aktuellen Tab ausgeblendet sind. Ersetzt _kette_info/_duplikatgruppe_info
+    (Marco, 2026-08-17: Zugehörigkeit über die Lead-Nummer statt über einen
+    Hinweis-Satz) - lead_nummer vereint ohnehin schon beide Kantentypen
+    (duplicate_of UND superseded_by, s. scripts/backfill_lead_nummer.py),
+    eine auf nur EINER Kantenart basierende Positionsangabe wäre für einen
+    gemischten Cluster unvollständig gewesen."""
+    if not lead_nummern:
+        return {}
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT id FROM leads WHERE id = %(w)s OR duplicate_of = %(w)s ORDER BY created_at ASC",
-            {"w": wurzel},
+            """
+            SELECT id,
+                   row_number() OVER (PARTITION BY lead_nummer ORDER BY created_at ASC) AS position,
+                   count(*) OVER (PARTITION BY lead_nummer) AS gesamt
+            FROM leads
+            WHERE lead_nummer = ANY(%(nummern)s)
+            """,
+            {"nummern": lead_nummern},
         )
         rows = cur.fetchall()
-    if len(rows) < 2:
-        return None
-    ids = [str(r["id"]) for r in rows]
-    return ids.index(lead_id) + 1, len(ids)
+    return {str(r["id"]): (r["position"], r["gesamt"]) for r in rows}
 
 
-def _decorate_row(conn: psycopg.Connection, row: dict) -> dict:
+def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
     result = compute_ampel(
         is_spam=row["is_spam"],
         spam_reason=row["spam_reason"],
@@ -421,25 +538,23 @@ def _decorate_row(conn: psycopg.Connection, row: dict) -> dict:
         geocode_status=row["geocode_status"],
         geo_state=row["geo_state"],
         geo_country=row["geo_country"],
-        geocode_candidate_count=None,  # geocode_raw-Struktur erst mit Phase 4 (Nominatim) definiert
+        geocode_candidate_count=None,  # aus geocode_raw gelesen erst mit Block d (Detailansicht/Liste noch nicht verdrahtet)
         phone_raw=row["phone_raw"],
         phone_valid=row["phone_valid"],
         postal_code=row["postal_code"],
     )
 
-    badges: list[dict] = []
+    status_display = status_label(row["status"])
+    if vorgang_position and vorgang_position[1] > 1:
+        # Zugehörigkeit über die Lead-Nummer sichtbar machen, nicht über
+        # einen zusätzlichen Hinweis-Satz (Marco, 2026-08-17: "Teil einer
+        # Korrekturkette" ist zu textlastig). Nur bei > 1 Zeile im Vorgang -
+        # für den Normalfall (keine Korrektur/kein Duplikat) wäre "Version
+        # 1 von 1" reine Auffüllung ohne Information.
+        pos, gesamt = vorgang_position
+        status_display = f"{status_display}, Version {pos} von {gesamt}"
 
-    # Zusammengehörigkeit zuerst, als schnelle Gesamtübersicht ohne den
-    # einzelnen Verweisen folgen zu müssen (Marco, 2026-08-16).
-    if row["superseded_by"] or row["vorgaenger_id"]:
-        kette = _kette_info(conn, str(row["id"]))
-        if kette:
-            pos, total = kette
-            badges.append({"text": f"Teil einer Korrekturkette: Anfrage {pos} von {total}", "url": None})
-    dup_gruppe = _duplikatgruppe_info(conn, str(row["id"]), row["duplicate_of"])
-    if dup_gruppe:
-        pos, total = dup_gruppe
-        badges.append({"text": f"Teil einer Duplikatgruppe: Anfrage {pos} von {total}", "url": None})
+    badges: list[dict] = []
 
     if row["erneut_angefragt_am"] is not None:
         badges.append({"text": f"Erneut angefragt am {format_berlin_datetime(row['erneut_angefragt_am'])}", "url": None})
@@ -468,12 +583,44 @@ def _decorate_row(conn: psycopg.Connection, row: dict) -> dict:
     return {
         **row,
         "created_at_display": format_berlin_datetime(row["created_at"]),
-        "status_display": status_label(row["status"]),
+        "status_display": status_display,
         "ampel_farbe": result.farbe,
         "ampel_grund": result.grund,
         "badges": badges,
         "row_inaktiv": row["status"] in _INAKTIVE_STATUSWERTE,
+        "zeile_defekt": False,
     }
+
+
+def _defekte_zeile(row: dict) -> dict:
+    """Fallback, wenn _decorate_row() für eine einzelne Zeile scheitert -
+    Konzept: eine defekte Zeile erscheint MARKIERT als defekt, statt die
+    ganze Liste mit abzureißen (Marco, 2026-08-17, Fund s. docs/FUNDE.md:
+    ein einziger Lead mit geocode_status='simuliert' brachte vorher das
+    komplette Dashboard zum Absturz, weil ampel() ungeschützt in der
+    Schleife über alle Zeilen aufgerufen wurde - die richtige Stelle für
+    diese Absicherung ist hier, pro Zeile, nicht eine Ebene höher).
+    Vermeidet jede Funktion, die selbst werfen könnte (auch
+    format_berlin_datetime setzt tzinfo voraus) - dieser Pfad muss unter
+    allen Umständen durchlaufen."""
+    return {
+        **row,
+        "created_at_display": str(row.get("created_at", "")),
+        "status_display": "Fehler bei der Anzeige",
+        "ampel_farbe": "defekt",
+        "ampel_grund": "Diese Zeile konnte nicht korrekt angezeigt werden - Details im Server-Log.",
+        "badges": [],
+        "row_inaktiv": False,
+        "zeile_defekt": True,
+    }
+
+
+def _decorate_row_safe(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
+    try:
+        return _decorate_row(row, vorgang_position)
+    except Exception:
+        logger.exception("Zeile konnte nicht aufbereitet werden (Lead %s)", row.get("id"))
+        return _defekte_zeile(row)
 
 
 # --- CSV-Export (Konzept §6/§8 K8, CLAUDE.md Regel 8) ---------------------
@@ -482,7 +629,10 @@ def _decorate_row(conn: psycopg.Connection, row: dict) -> dict:
 # können (Marco, 2026-08-16: "berücksichtigt den aktuell aktiven Filter und
 # die Suche, nicht immer alles").
 
-_AMPEL_FARBE_LABELS = {"gruen": "Grün", "gelb": "Gelb", "rot": "Rot", "grau": "Grau", "schwarz": "Schwarz"}
+_AMPEL_FARBE_LABELS = {
+    "gruen": "Grün", "gelb": "Gelb", "rot": "Rot", "grau": "Grau", "schwarz": "Schwarz",
+    "defekt": "Fehler (Anzeige defekt)",
+}
 
 _CSV_HEADER = [
     "Lead-Nummer", "Lead-ID", "Erstellt am", "Name", "E-Mail", "Telefon", "Straße", "PLZ", "Ort",
@@ -504,7 +654,11 @@ def export_leads_csv(request: Request):
 
     with get_connection() as conn:
         rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
-        leads = [_decorate_row(conn, row) for row in rows]
+        positions = _fetch_vorgang_positions(conn, [r["lead_nummer"] for r in rows if r["lead_nummer"] is not None])
+        leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
+
+    if p["ampel_filter"]:  # s. Kommentar in dashboard() - keine echte Spalte, Filter greift erst hier
+        leads = [lead for lead in leads if lead["ampel_farbe"] == p["ampel_filter"]]
 
     buffer = io.StringIO()
     # Excel (Deutschland) erwartet Semikolon als Trennzeichen (CLAUDE.md
@@ -523,6 +677,8 @@ def export_leads_csv(request: Request):
     filename = _csv_filename(
         tab=p["tab"], show_all=p["show_all"], search=p["search"],
         channel_filter=p["channel_filter"], bundesland_filter=p["bundesland_filter"],
+        ampel_filter=p["ampel_filter"], ort_filter=p["ort_filter"],
+        status_filter=p["status_filter"], zugewiesen_filter=p["zugewiesen_filter"],
     )
     return Response(
         content=content,
@@ -541,6 +697,10 @@ def _csv_filename(
     search: str | None,
     channel_filter: str | None = None,
     bundesland_filter: str | None = None,
+    ampel_filter: str | None = None,
+    ort_filter: str | None = None,
+    status_filter: str | None = None,
+    zugewiesen_filter: str | None = None,
 ) -> str:
     """Dateiname enthält Filter+Suche+Datum, damit mehrere Exporte am
     selben Tag nicht denselben Namen tragen und sich der Browser nicht
@@ -548,10 +708,18 @@ def _csv_filename(
     parts = ["standort-check-leads", tab]
     if show_all:
         parts.append("inkl-inaktive")
+    if ort_filter:
+        parts.append(f"ort-{_FILENAME_UNSAFE_RE.sub('-', ort_filter).strip('-').lower()}")
     if channel_filter:
         parts.append(f"kanal-{_FILENAME_UNSAFE_RE.sub('-', channel_filter).strip('-').lower()}")
     if bundesland_filter:
         parts.append(f"bundesland-{_FILENAME_UNSAFE_RE.sub('-', bundesland_filter).strip('-').lower()}")
+    if ampel_filter:
+        parts.append(f"ampel-{ampel_filter}")
+    if status_filter:
+        parts.append(f"status-{_FILENAME_UNSAFE_RE.sub('-', status_filter).strip('-').lower()}")
+    if zugewiesen_filter:
+        parts.append(f"zugewiesen-{_FILENAME_UNSAFE_RE.sub('-', zugewiesen_filter).strip('-').lower()}")
     if search:
         slug = _FILENAME_UNSAFE_RE.sub("-", search).strip("-").lower()
         if slug:
