@@ -1,0 +1,32 @@
+name: Retry-Cron
+
+# Ruft POST /admin/retry alle 15 Minuten auf (Konzept §1, Phase 4 Block e):
+# arbeitet liegen gebliebenes Geocoding und fehlgeschlagene Bestätigungs-
+# mails nach (app/retry.py) und hält als Nebeneffekt Supabase Free Tier
+# aktiv (kein Auto-Pause bei Inaktivität).
+#
+# Benötigt zwei Werte in den Repo-Einstellungen (Settings > Secrets and
+# variables > Actions):
+#   - Variable RETRY_URL:   Basis-URL des Deployments, ohne Slash am Ende
+#                            (z.B. https://standort-check.vercel.app)
+#   - Secret   RETRY_SECRET: derselbe Wert wie RETRY_SECRET in .env
+#                            (scripts/gen_secrets.py erzeugt ihn)
+#
+# curl --fail lässt den Job fehlschlagen (rot in der Actions-Übersicht),
+# wenn der Endpunkt nicht mit 2xx antwortet - kein stilles Verschlucken
+# eines toten Deployments oder falschen Secrets.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: # manueller Anstoß im GitHub-UI, zum Testen ohne zu warten
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /admin/retry aufrufen
+        run: |
+          curl -sS --fail --max-time 60 \
+            -X POST "${{ vars.RETRY_URL }}/admin/retry" \
+            -H "X-Retry-Secret: ${{ secrets.RETRY_SECRET }}"
