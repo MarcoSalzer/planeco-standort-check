@@ -61,9 +61,9 @@ aber als Projektdefinition gelesen). Behoben durch Entfernen der Datei
 Abschnitt nachzutragen - Letzteres hätte riskiert, dass Vercel
 `requirements.txt` künftig ignoriert. Details + Abwägung in
 docs/FUNDE.md. **Alle Commits sind bei `origin/main` gepusht** (`git
-status` zeigt "up to date"), aber der Fix wurde noch NICHT gegen einen
-echten Vercel-Build verifiziert - unbekannt, ob der Build inzwischen
-durchläuft.
+status` zeigt "up to date"). **Verifiziert (Marco, 2026-08-17):** Build
+läuft durch, `/health`/Formular/Dashboard online geprüft, GitHub-Actions-
+Cron (Block e unten) manuell ausgelöst und grün.
 
 ### Aktueller Modul-Stand (`app/`)
 
@@ -142,17 +142,29 @@ jetzt in `pytest.ini` (nicht mehr `pyproject.toml`, s. Deploy-Fix oben).
    ein Nebenfund behoben (Marco, 2026-08-17): der Detailansicht-Link war
    reiner Text ohne `<a>`-Tag, nicht klickbar - jetzt echter Link,
    gleiche Behandlung (neuer Tab) wie das neue Symbol in der Liste.
-4. **Auslandspfad nach Konzept §A.** Eigener, größerer Baustein - nicht
-   nebenbei miterledigen. Umfasst: zweite, separate Mail bei
-   `in_service_area=false` (`ausland_hinweis_status`-Spalte existiert
-   bereits seit Migration 0001, aber ungenutzt), `status='ausland'`
-   (Status-Wert existiert bereits im CHECK-Constraint), Formularfeld
-   `expansion_opt_in` (Spalte existiert bereits, aber kein Formularfeld
-   dafür und keine Logik, die sie setzt oder ausliest). Rechtlich
-   vorsichtige Formulierung s. Konzept §A (keine automatische
-   Weitergabe an Partner, Einwilligung nur durch aktive Antwort). Vor dem
-   Bauen Konzept §A nochmal vollständig lesen, nicht aus der
-   Erinnerung rekonstruieren.
+4. ✅ **Auslandspfad nach Konzept §A.** Zweite, separate Mail bei
+   `in_service_area=false` (`app/retry.py::_flag_as_ausland`, ausgelöst
+   aus `_apply_geocode_result`), `status='ausland'` gesetzt (nur beim
+   ersten Übergang - ein späteres manuelles Wiederholen des Geocodings,
+   Block d, löst keine zweite Mail/kein zweites Event mehr aus),
+   `ausland_hinweis_status` (offen/gesendet/fehlgeschlagen/simuliert/
+   nicht_noetig, Migration 0010 ergänzt `'simuliert'`) läuft über einen
+   dritten Retry-Zweig (`_retry_auslandshinweis`, dritter Schlüssel in der
+   `/admin/retry`-Antwort). Mailtext mit Marco abgestimmt (zwei Varianten
+   je nach `expansion_opt_in`: bestätigt die Region-Info statt erneut zu
+   fragen, wenn der Interessent das Formular-Häkchen schon gesetzt hatte;
+   Partner-Vermittlung in beiden Fällen nur als Antwort-Aufforderung, nie
+   automatisch). Formularfeld `expansion_opt_in` in `form.html` + durch
+   `main.py`/`submission.py` gezogen (Insert, Edit-Link-Vorbefüllung,
+   422-Reject-Echo). **Bewusste Einschränkung:** anders als `email_status`
+   bekam `ausland_hinweis_status` keine eigenen `_attempts`/`_last_error`/
+   `_sent_at`-Spalten (Konzept §F sieht nur den einen Statuswert vor) -
+   Audit-Spur läuft vollständig über `lead_events`
+   (`mail_gesendet`/`mail_fehlgeschlagen` mit `"typ":"auslandshinweis"`).
+   Kein eigener "Auslandshinweis erneut senden"-Button pro Lead (§A nennt
+   nur den globalen Retry-Pfad). Live gegen die echte DB verifiziert
+   (Insert+Flag+Dry-Run-Mail in einer zurückgerollten Transaktion, keine
+   Spuren hinterlassen).
 5. ~~**Landesbauordnungs-Zuordnung.**~~ **Bewusst gestrichen (Marco,
    2026-08-17), kein Bauauftrag mehr.** Konzept §C ("Zweite Erweiterung:
    Bundesland → Landesbauordnung") bleibt als recherchierter Vorschlag im
@@ -182,10 +194,8 @@ Baustein.
 
 ### Sonstiges, noch offen (kein Bauauftrag, nur Diese-Woche-Erinnerung)
 
-- **Deploy + Cron-Test:** nach dem nächsten Vercel-Deploy prüfen, ob der
-  Build durchläuft (Deploy-Fix oben), danach `RETRY_URL`/`RETRY_SECRET`
-  in GitHub setzen und den Workflow einmal manuell über "Run workflow"
-  (`workflow_dispatch`) auslösen.
+- ~~**Deploy + Cron-Test**~~ erledigt (Marco, 2026-08-17/18): Build läuft,
+  Cron manuell ausgelöst und grün, s. Deploy-Fix/Block (e) oben.
 - **F2-Mailtext:** enthält einen Gedankenstrich ("... vorliegenden
   Anfrage — es hat sich nichts geändert."), `app/mail.py`,
   `_INTRO_TEXT_BY_CASE[DedupCase.F2_DUPLIKAT]`. Vor Abgabe gegenlesen.
@@ -247,8 +257,8 @@ Baustein.
 - [x] **Block (c):** `traffic_light`/`traffic_light_reason` (Spalten seit Migration 0001, nie befüllt) werden bei jedem Schreibvorgang berechnet statt live beim Lesen. `app/traffic_light.py::apply_traffic_light(conn, lead_id)` einziger Ort, der `app/core/ampel.py` (bleibt reine Funktion) mit einem DB-Read/Write verbindet. Alle fünf ampel-relevanten Schreibpfade angeschlossen: Submit (`_insert_lead`), Geocoding-Ergebnis (alle drei Fälle in `app/retry.py`), manueller Statuswechsel UND Spam-Freigabe (ein unbedingter Aufruf in `update_lead_bearbeitung`, nicht an einzelne Feldnamen gebunden), F3-Korrektur (`_supersede()`, Ampel des VORGÄNGERS). Neue Spalte `geocode_candidate_count` (Migration 0009). Bestand per `scripts/backfill_traffic_light.py --apply` nachgerechnet, 32/32 Zeilen. Liste/Detailansicht lesen nur noch `row["traffic_light"]`. Ampel-Filter läuft seither als echtes SQL statt Python-Nachfilterung.
 - [x] **Block (d):** Kandidaten bei `geocode_status='mehrdeutig'` in der Detailansicht (`candidate_summaries()` in `app/core/geocoding.py`, aus bereits gespeichertem `geocode_raw`, kein neuer API-Aufruf) - live mit dem "Lindenweg 3, Neustadt"-Testfall verifiziert. Button "Geocoding wiederholen" je Lead (`retry_one_geocode()`, immer versucht, respektiert aber weiterhin Kontingent/DRY_RUN). Globaler Retry-Button in der Liste (`fetch()`, zeigt verarbeitet/verbleibend direkt an).
 - [x] **18.08., Korrektur nach Marcos Export-Analyse (überholt die "Blockweise Tönung" vom 17.08.):** Gruppen-Einfärbung entfernt - im Standardfilter bestand jede Lead-Nummer-Gruppe ohnehin nur aus einer Zeile, die Farbe war ein bedeutungsloses Zebramuster in einer Farbe (Blau), die wie eine Hervorhebung liest statt wie eine Dämpfung (Fund in docs/FUNDE.md). Ersetzt durch die bereits vorhandene `row-inaktiv`-Regel allein. Tab "Alle" zeigt inaktive Zeilen jetzt standardmäßig (Tab heißt "Alle"), Schalter blendet dort aus statt ein. Lead-Nummer als eigene, in beide Richtungen anklickbare Sortierung (`nummer_auf`/`nummer_ab`), ersetzt den überflüssig gewordenen "vorgang"-Sondermodus. Kompakte einzeilige Ampel-Legende über der Liste. Live geprüft: Nummern 6/12/14/15/17 stehen nach Lead-Nummer sortiert direkt untereinander, exakt eine normal dargestellte Zeile pro Gruppe.
-- [x] **Block (e):** `.github/workflows/retry-cron.yml`, `schedule: */15 * * * *` + `workflow_dispatch`. `curl -sS --fail` gegen `${{ vars.RETRY_URL }}/admin/retry` mit `X-Retry-Secret`-Header. Braucht `RETRY_URL`(Variable)/`RETRY_SECRET`(Secret) in den GitHub-Repo-Einstellungen. YAML-Syntax lokal geprüft, **noch nicht live gegen ein Deployment getestet**.
-- [ ] Auslandspfad (Konzept §A): s. "Nächste Schritte" Punkt 4 oben, mit genauerer Beschreibung als hier. Bundesland→Landesbauordnung-Mapping (Konzept §C) bewusst gestrichen, s. "Nächste Schritte" Punkt 5 oben.
+- [x] **Block (e):** `.github/workflows/retry-cron.yml`, `schedule: */15 * * * *` + `workflow_dispatch`. `curl -sS --fail` gegen `${{ vars.RETRY_URL }}/admin/retry` mit `X-Retry-Secret`-Header. `RETRY_URL`(Variable)/`RETRY_SECRET`(Secret) in den GitHub-Repo-Einstellungen gesetzt, Workflow manuell über `workflow_dispatch` ausgelöst - **lief grün, Endpunkt erreicht** (Marco, 2026-08-17/18).
+- [x] Auslandspfad (Konzept §A): s. "Nächste Schritte" Punkt 4 oben, dort die genauere Beschreibung. Bundesland→Landesbauordnung-Mapping (Konzept §C) bewusst gestrichen, s. "Nächste Schritte" Punkt 5 oben.
 
 ## Phase 5 — Abnahme (Di, ~2-3h)
 - [ ] Fünf Beispielanfragen vom Handy (fiktive Mails, einmal mit ?utm_source=meta&utm_campaign=test)
