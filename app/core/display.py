@@ -16,6 +16,16 @@ def format_berlin_datetime(value: datetime) -> str:
     return value.astimezone(_BERLIN).strftime("%d.%m.%Y %H:%M")
 
 
+def format_address(street: str, postal_code: str | None, city: str) -> str:
+    """Straße + PLZ + Ort als eine Zeile - geteilt zwischen der
+    Bestätigungsmail (app/mail.py) und der Adress-Spalte im Dashboard
+    (app/admin.py), damit beide Stellen nicht unabhängig voneinander
+    formatieren und dabei auseinanderlaufen können."""
+    if postal_code:
+        return f"{street}, {postal_code} {city}"
+    return f"{street}, {city}"
+
+
 def berlin_today_iso() -> str:
     """Für Dateinamen (CSV-Export): sortierbares YYYY-MM-DD in Europe/Berlin,
     bewusst nicht datetime.now().date() (das wäre UTC-Datum, kann nahe

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.core.display import format_berlin_datetime
+from app.core.display import format_address, format_berlin_datetime
 
 
 def test_winter_utc_wird_um_eine_stunde_versetzt_cet():
@@ -18,3 +18,11 @@ def test_sommer_utc_wird_um_zwei_stunden_versetzt_cest():
 def test_naive_datetime_wirft_fehler_statt_falsch_anzuzeigen():
     with pytest.raises(ValueError):
         format_berlin_datetime(datetime(2026, 1, 15, 10, 0))
+
+
+def test_format_address_mit_plz():
+    assert format_address("Musterstraße 1", "12345", "Berlin") == "Musterstraße 1, 12345 Berlin"
+
+
+def test_format_address_ohne_plz():
+    assert format_address("Musterstraße 1", None, "Berlin") == "Musterstraße 1, Berlin"

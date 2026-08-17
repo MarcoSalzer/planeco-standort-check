@@ -20,7 +20,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from app.config import DRY_RUN_EMAIL, MAX_EMAILS_PER_DAY
 from app.core.dedup import DedupCase
-from app.core.display import CONTACT_TIME_LABELS
+from app.core.display import CONTACT_TIME_LABELS, format_address
 from app.core.edit_token import generate_edit_token
 from app.db import insert_event as _insert_event
 from app.submission import NewLeadData
@@ -222,12 +222,7 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCas
     if data.contact_time_preference in _CONTACT_TIME_TEXT:
         erwartung_text += " " + _CONTACT_TIME_TEXT[data.contact_time_preference]
 
-    address_parts = [data.street]
-    if data.postal_code:
-        address_parts.append(f"{data.postal_code} {data.city}")
-    else:
-        address_parts.append(data.city)
-    address = ", ".join(address_parts)
+    address = format_address(data.street, data.postal_code, data.city)
 
     owner_text = {True: "Ja", False: "Nein"}.get(data.is_owner)
     contact_time_text = CONTACT_TIME_LABELS.get(data.contact_time_preference)

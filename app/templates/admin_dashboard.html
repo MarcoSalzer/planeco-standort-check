@@ -476,9 +476,9 @@
             </th>
             <th>Name</th>
             <th class="filterable">
-              Ort
+              Adresse
               <select name="ort" form="filterform" onchange="this.form.submit()" aria-label="Nach Ort filtern">
-                <option value="">Alle</option>
+                <option value="">Alle Orte</option>
                 {% for wert in filter_options.ort_filter %}
                 <option value="{{ wert }}" {{ "selected" if wert == ort_filter else "" }}>{{ wert }}</option>
                 {% endfor %}
@@ -547,7 +547,7 @@
               </div>
             </td>
             <td>
-              {{ lead.city }}
+              {{ lead.address_display }}
               {% if lead.maps_link %}<a class="maps-icon" href="{{ lead.maps_link }}" target="_blank" rel="noopener noreferrer" aria-label="{{ lead.city }} auf Google Maps öffnen" title="Auf Google Maps öffnen">📍</a>{% endif %}
             </td>
             <td>{{ lead.geo_state or "–" }}</td>
@@ -675,7 +675,7 @@
         });
       }
 
-      function speichereZeile(tr) {
+      function speichereZeile(tr, disqualifyReason) {
         var select = tr.querySelector('.inline-status');
         var input = tr.querySelector('.inline-assigned');
         if (!select || !input) { return; }
@@ -688,6 +688,9 @@
         body.set('status', select.value);
         body.set('assigned_to', input.value);
         body.set('view', window.location.search.replace(/^\?/, ''));
+        if (disqualifyReason !== undefined) {
+          body.set('disqualify_reason', disqualifyReason);
+        }
 
         select.disabled = true;
         input.disabled = true;
@@ -735,7 +738,23 @@
 
       document.querySelectorAll('.inline-status').forEach(function (select) {
         select.addEventListener('change', function () {
-          speichereZeile(select.closest('tr'));
+          var tr = select.closest('tr');
+          if (select.value === 'disqualifiziert') {
+            // Marco, 2026-08-18: "Beim Setzen von disqualifiziert soll der
+            // Grund abgefragt werden" - kein eigenes Eingabefeld in der
+            // ohnehin schon engen Zeile, sondern ein Prompt direkt bei der
+            // Auswahl. Abbrechen oder leer lassen -> Auswahl geht zurück,
+            // es wird gar nicht erst gespeichert (serverseitig zusätzlich
+            // erzwungen, s. app/admin.py::quick_update_lead).
+            var grund = window.prompt('Grund für die Disqualifikation:');
+            if (grund === null || grund.trim() === '') {
+              select.value = select.dataset.gespeichert;
+              return;
+            }
+            speichereZeile(tr, grund.trim());
+            return;
+          }
+          speichereZeile(tr);
         });
       });
 

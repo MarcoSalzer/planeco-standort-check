@@ -84,6 +84,15 @@
     .summary h2 { margin: 0 0 0.3rem; font-size: 1.15rem; }
     .summary .status-line { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
     .ampel-line { display: flex; align-items: center; font-size: 0.95rem; }
+    .mail-status-line {
+      display: flex;
+      align-items: center;
+      font-size: 0.9rem;
+      margin: 0 0 0.25rem;
+      padding: 0.5rem 0.65rem;
+      background: var(--bg);
+      border-radius: 0.4rem;
+    }
     .dot {
       display: inline-block;
       width: 0.65rem;
@@ -194,6 +203,9 @@
     dl.event-payload dt::after { content: ": "; }
     dl.event-payload dd { display: inline; margin: 0 0.75rem 0 0; }
     dl.event-payload div { margin-bottom: 0.15rem; }
+    ul.diff-list { margin: 0.3rem 0 0; padding: 0; list-style: none; font-size: 0.85rem; }
+    ul.diff-list li { margin-bottom: 0.2rem; }
+    p.diff-merged-hint { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--muted); }
 
     .empty-hint { color: var(--muted); font-size: 0.9rem; }
 
@@ -290,8 +302,13 @@
         <button type="submit">Speichern</button>
       </form>
       <form method="post" action="/admin/leads/{{ lead_id }}/mail-erneut-senden" class="resend-form">
+        <p class="mail-status-line">
+          <span class="dot {{ mail_status_hinweis.farbe }}" aria-hidden="true"></span>
+          <strong>Bestätigungsmail:</strong> {{ mail_status_hinweis.text }}
+          {%- if mail_status_hinweis.versuche and mail_status_hinweis.versuche > 1 %} ({{ mail_status_hinweis.versuche }} Versuche){% endif %}
+        </p>
         <button type="submit">Bestätigungsmail erneut senden</button>
-        <p class="hint">Aktueller Mail-Status: {{ email_status_display }}. Bei Spam-Verdacht wird nie gesendet.</p>
+        <p class="hint">Bei Spam-Verdacht wird nie gesendet.</p>
       </form>
       <form method="post" action="/admin/leads/{{ lead_id }}/geocoding-wiederholen" class="resend-form">
         <button type="submit">Geocoding wiederholen</button>
@@ -356,7 +373,23 @@
         <li>
           <div class="event-time">{{ event.created_at_display }}</div>
           <div class="event-label">{{ event.label }}</div>
-          {% if event.payload %}
+          {% if event.diff %}
+            {% if event.diff.changed %}
+            <ul class="diff-list">
+              {% for d in event.diff.changed %}
+              <li><strong>{{ d.label }}:</strong> „{{ d.alt }}“ → „{{ d.neu }}“</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if event.diff.merged %}
+            <p class="diff-merged-hint">Aus vorheriger Anfrage übernommen (in dieser Anfrage leer gelassen):
+              {% for m in event.diff.merged %}{{ m.label }} = „{{ m.wert }}“{% if not loop.last %}, {% endif %}{% endfor %}
+            </p>
+            {% endif %}
+            {% if not event.diff.changed and not event.diff.merged %}
+            <p class="diff-merged-hint">Keine inhaltliche Änderung außer dem erneuten Absenden.</p>
+            {% endif %}
+          {% elif event.payload %}
           <dl class="event-payload">
             {% for key, value in event.payload.items() %}
             <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
@@ -371,5 +404,23 @@
       {% endif %}
     </div>
   </div>
+  <script>
+    // Marco, 2026-08-18: "Beim Setzen von disqualifiziert soll der Grund
+    // abgefragt werden" - native Browser-Validierung (required-Attribut)
+    // statt einer eigenen Fehlermeldung, weil das Feld hier (anders als in
+    // der Liste) schon immer sichtbar im Formular steht. Serverseitig
+    // zusätzlich erzwungen (app/admin.py::update_lead_bearbeitung), das
+    // hier ist nur der bequeme, frühzeitige Hinweis im Browser.
+    (function () {
+      var statusFeld = document.getElementById('status');
+      var grundFeld = document.getElementById('disqualify_reason');
+      if (!statusFeld || !grundFeld) { return; }
+      function aktualisieren() {
+        grundFeld.required = statusFeld.value === 'disqualifiziert';
+      }
+      statusFeld.addEventListener('change', aktualisieren);
+      aktualisieren();
+    })();
+  </script>
 </body>
 </html>

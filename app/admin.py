@@ -33,6 +33,7 @@ from app.core.display import (
     CONTACT_TIME_LABELS,
     EVENT_TYPE_LABELS,
     berlin_today_iso,
+    format_address,
     format_berlin_datetime,
     format_duration_de,
     status_label,
@@ -637,11 +638,19 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
     if row["lat"] is not None and row["lon"] is not None:
         maps_link = f"https://maps.google.com/?q={row['lat']},{row['lon']}"
 
+    # Adresse als eine Spalte statt Straße/PLZ/Ort einzeln (Marco,
+    # 2026-08-18: "In der Liste fehlt die Adresszeile") - dieselbe
+    # Formatierung wie in der Bestätigungsmail (app/core/display.py::
+    # format_address), damit beide Stellen nie auseinanderlaufen.
+    # Bundesland bleibt eine eigene Spalte (wird gefiltert).
+    address_display = format_address(row["street"], row["postal_code"], row["city"])
+
     return {
         **row,
         "created_at_display": format_berlin_datetime(row["created_at"]),
         "status_display": status_display,
         "vorgang_hinweis": vorgang_hinweis,
+        "address_display": address_display,
         "ampel_farbe": row["traffic_light"],
         "ampel_grund": row["traffic_light_reason"],
         "badges": badges,
@@ -671,6 +680,7 @@ def _defekte_zeile(row: dict) -> dict:
         "ampel_grund": "Diese Zeile konnte nicht korrekt angezeigt werden - Details im Server-Log.",
         "badges": [],
         "maps_link": None,
+        "address_display": str(row.get("street", "")),
         "row_inaktiv": False,
         "zeile_defekt": True,
     }
@@ -1062,6 +1072,100 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
     ]
 
 
+# Feld-Diff bei F3-Korrekturen (Marco, 2026-08-18: "Der Feld-Diff liegt
+# bereits im Event ersetzt" - app.core.merge.merge_fields() schreibt
+# changed_fields/merged_fields mit den internen Feldnamen aus
+# _merge_with_candidate() in app/submission.py, hier nur für die Anzeige
+# auf deutsche Beschriftungen abgebildet). Nur in der Detailansicht (nicht
+# in der Liste - würde dort keinen Platz haben und ist kein
+# Listen-Anwendungsfall).
+_MERGE_FELD_LABELS: dict[str, str] = {
+    "name_raw": "Name",
+    "email": "E-Mail",
+    "phone_raw": "Telefon",
+    "street": "Straße",
+    "postal_code": "PLZ",
+    "city": "Ort",
+    "is_owner": "Eigentümer",
+    "contact_time_preference": "Erreichbarkeit",
+    "message": "Anmerkung",
+    "heard_about": "Wie gefunden",
+}
+
+
+def _diff_wert_text(value) -> str:
+    if isinstance(value, bool):
+        return _ja_nein(value)
+    return _text(value)
+
+
+def _ersetzt_diff(payload: dict) -> dict:
+    changed = payload.get("changed_fields") or {}
+    merged = payload.get("merged_fields") or {}
+    return {
+        "changed": [
+            {
+                "label": _MERGE_FELD_LABELS.get(feld, feld),
+                "alt": _diff_wert_text(werte.get("alt")),
+                "neu": _diff_wert_text(werte.get("neu")),
+            }
+            for feld, werte in changed.items()
+        ],
+        "merged": [
+            {"label": _MERGE_FELD_LABELS.get(feld, feld), "wert": _diff_wert_text(wert)}
+            for feld, wert in merged.items()
+        ],
+    }
+
+
+# Mail-Status deutlich sichtbar machen (Marco, 2026-08-18: "aktuell sieht
+# es aus, als müsste man manuell versenden" - der Button "Bestätigungsmail
+# erneut senden" stand ohne erkennbaren Grund daneben). Die Daten standen
+# schon in email_status/email_attempts/email_last_error/email_sent_at
+# (Spalten) bzw. in den mail_gesendet/mail_fehlgeschlagen-Events - hier nur
+# zu einem einzigen, klaren Satz + Ampelfarbe zusammengefasst, direkt über
+# dem Button statt in der allgemeinen Feldliste weiter unten.
+_MAIL_STATUS_FARBEN: dict[str, str] = {
+    "gesendet": "gruen",
+    "fehlgeschlagen": "rot",
+    "offen": "grau",
+    "simuliert": "grau",
+    "uebersprungen": "schwarz",
+}
+
+
+def _mail_status_hinweis(row: dict, events: list[dict]) -> dict:
+    status = row["email_status"]
+    letztes_mail_event = next(
+        (
+            e for e in reversed(events)
+            if str(e["lead_id"]) == str(row["id"]) and e["event_type"] in ("mail_gesendet", "mail_fehlgeschlagen")
+        ),
+        None,
+    )
+    zeitpunkt = None
+    if row["email_sent_at"] is not None:
+        zeitpunkt = format_berlin_datetime(row["email_sent_at"])
+    elif letztes_mail_event is not None:
+        zeitpunkt = format_berlin_datetime(letztes_mail_event["created_at"])
+
+    if status == "gesendet":
+        text = f"Gesendet am {zeitpunkt}." if zeitpunkt else "Gesendet."
+    elif status == "fehlgeschlagen":
+        fehler = row["email_last_error"] or "unbekannter Fehler"
+        text = f"Fehlgeschlagen{' am ' + zeitpunkt if zeitpunkt else ''} — {fehler}"
+    elif status == "offen":
+        text = "Ausstehend — noch nicht versendet (nächster automatischer Retry oder manuell über den Button unten)."
+    elif status == "simuliert":
+        text = f"Simuliert{' am ' + zeitpunkt if zeitpunkt else ''} (Testmodus DRY_RUN_EMAIL, kein echter Versand)."
+    elif status == "uebersprungen":
+        text = "Übersprungen (Spamverdacht) — bewusst kein Versand."
+    else:
+        text = status_label(status)
+
+    return {"text": text, "farbe": _MAIL_STATUS_FARBEN.get(status, "grau"), "versuche": row["email_attempts"]}
+
+
 def _build_detail_context(
     row: dict,
     ancestors: list[dict],
@@ -1096,6 +1200,7 @@ def _build_detail_context(
             **e,
             "created_at_display": format_berlin_datetime(e["created_at"]),
             "label": EVENT_TYPE_LABELS.get(e["event_type"], e["event_type"]),
+            "diff": _ersetzt_diff(e["payload"]) if e["event_type"] == "ersetzt" and e["payload"] else None,
         }
         for e in events
     ]
@@ -1107,6 +1212,7 @@ def _build_detail_context(
         "status_display": status_label(row["status"]),
         "contacted_at_display": _dt(row["contacted_at"]),
         "email_status_display": status_label(row["email_status"]),
+        "mail_status_hinweis": _mail_status_hinweis(row, events),
         "ampel_farbe": row["traffic_light"],
         "ampel_grund": row["traffic_light_reason"],
         "message": row["message"],
@@ -1140,6 +1246,15 @@ def update_lead_bearbeitung(
 
     assigned_to = assigned_to.strip() or None
     disqualify_reason = disqualify_reason.strip() or None
+
+    # Marco, 2026-08-18: "Beim Setzen von disqualifiziert soll der Grund
+    # abgefragt werden" - serverseitig erzwungen (CLAUDE.md Regel 11:
+    # clientseitige Prüfungen sind Komfort, nie Sicherheit), nicht nur über
+    # das Formularfeld nahegelegt. Das Feld selbst bleibt immer sichtbar
+    # (auch für andere Status), nur bei status='disqualifiziert' wird ein
+    # gefüllter Wert verlangt.
+    if status == "disqualifiziert" and not disqualify_reason:
+        raise HTTPException(status_code=400, detail="Für Status 'Disqualifiziert' wird ein Grund benötigt.")
 
     with get_connection() as conn:
         row = _fetch_lead(conn, lead_id)
@@ -1213,6 +1328,7 @@ def quick_update_lead(
     status: str = Form(...),
     assigned_to: str = Form(""),
     view: str = Form(""),
+    disqualify_reason: str | None = Form(None),
 ):
     admin_username = _current_admin(request)
     if not admin_username:
@@ -1226,11 +1342,27 @@ def quick_update_lead(
         raise HTTPException(status_code=400, detail="Ungültiger Status.")
 
     assigned_to = assigned_to.strip() or None
+    # None (Feld gar nicht mitgeschickt, s. Dashboard-JS) heißt "unverändert
+    # lassen" - anders als bei assigned_to/status kann die Schnellbearbeitung
+    # den Grund nicht einfach immer mitschicken, weil er nur bei einem
+    # Wechsel AUF 'disqualifiziert' abgefragt wird (Prompt im Dashboard-JS).
+    disqualify_reason = disqualify_reason.strip() if disqualify_reason is not None else None
 
     with get_connection() as conn:
         row = _fetch_lead(conn, lead_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+
+        # Wie update_lead_bearbeitung: 'disqualifiziert' braucht einen Grund
+        # (Marco, 2026-08-18), serverseitig geprüft (CLAUDE.md Regel 11) statt
+        # sich auf den Prompt im Dashboard-JS zu verlassen. Fällt auf den
+        # bereits gespeicherten Grund zurück, wenn dieser Aufruf gar keinen
+        # neuen mitschickt (z.B. eine reine Zugewiesen-Änderung an einem
+        # bereits disqualifizierten Lead darf nicht plötzlich verlangen, den
+        # Grund erneut einzutippen).
+        finaler_grund = disqualify_reason if disqualify_reason is not None else row["disqualify_reason"]
+        if status == "disqualifiziert" and not finaler_grund:
+            raise HTTPException(status_code=400, detail="Für Status 'Disqualifiziert' wird ein Grund benötigt.")
 
         if row["status"] in _INAKTIVE_STATUSWERTE and row["status"] != "spam":
             # Serverseitiges Sicherheitsnetz, nicht nur im Template
@@ -1268,6 +1400,9 @@ def quick_update_lead(
         if assigned_to != row["assigned_to"]:
             updates["assigned_to"] = assigned_to
             insert_event(conn, lead_id, "zugewiesen", {"an": assigned_to})
+
+        if disqualify_reason is not None and disqualify_reason != (row["disqualify_reason"] or ""):
+            updates["disqualify_reason"] = disqualify_reason or None
 
         if updates:
             _update_lead(conn, lead_id, updates)
