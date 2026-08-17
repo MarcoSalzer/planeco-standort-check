@@ -3,236 +3,186 @@
 Abgabe: Do 20.08. 10:00 an Tessa, CC Björn + Basti. Interview: Fr 21.08. 10:00.
 Fenster: Fr 14.08. mittags bis Mi 19.08. abends. Mi ist Puffer.
 
-## Stand 16.08. abends (8) — für den Einstieg in eine neue Session
+## Stand 18.08. — Übergabe für eine frische Session
 
-Phase 1, Phase 2 UND Phase 3 sind vollständig fertig und committet (siehe
-`git log`). Marco hat sechs echte Testanfragen über das Formular im
-Browser durchlaufen lassen (u.a. "Kai Ruthenberg", "Jörg Klöpper" - Jörg
-hat dabei real eine F3-Korrektur ausgelöst) und danach das komplette
-Dashboard im Browser durchgeklickt - beides funktioniert. Zwei weitere
-Nacharbeitsrunden folgten (alle committet):
+Diese Session lief voll. Der Abschnitt hier ersetzt die bisherigen,
+über mehrere Tage angehäuften "Stand"-Absätze (die standen vorher direkt
+unter diesem Titel, jetzt Verlaufsmaterial in den Phasen-Checklisten
+unten) durch eine einzige, aktuelle Zusammenfassung. Wer hier neu
+einsteigt, braucht NICHT den bisherigen Gesprächsverlauf - alles
+Nötige steht in diesem Abschnitt plus `docs/KONZEPT.md` (Fachlogik),
+`docs/FUNDE.md` (Implementierungsfunde mit Ursache) und `CLAUDE.md`
+(harte Regeln). Die Phasen-Checklisten weiter unten (ab "## Phase 0")
+bleiben als detailliertes Verlaufsmaterial stehen, auch was hier oben
+schon knapper zusammengefasst ist - für NOTES.md (Phase 6) nützlich,
+für den Einstieg nicht nötig.
 
-**Runde 1 (7 Punkte):** Formular-Feldreihenfolge; heard_about-Fund
-repariert (unbekannter Wert -> "keine Angabe" + Event
-`unerwarteter_feldwert`, kein 422); Attributionsfelder-Fund repariert
-(leer -> NULL, Migration 0005); beide Funde in docs/FUNDE.md; Sortierung
-mit Tab-eigenen Defaults (Neu/Bearbeitung älteste zuerst, Erledigt/Alle
-neueste zuerst) sichtbar beschriftet und umschaltbar; Zusammengehörigkeits-
-Badges "Teil einer Korrekturkette/Duplikatgruppe: Anfrage X von Y"; zwei
-Dropdown-Filter (Kanal, Bundesland).
+### Was fertig ist
 
-**Runde 2 (3 Punkte, 2 davon umgesetzt):**
-1. Formularmarkierung: nur die 3 Pflichtfelder (Adresse/E-Mail/
-   Datenschutz) tragen noch ein Sternchen, "(optional)" ist überall weg,
-   Nutzenhinweise (z.B. Telefon "für schnellere Rückmeldung") bleiben
-   ohne das Wort "optional".
-2. Lead-Nummer: fortlaufende, menschenlesbare Nummer PRO VORGANG (nicht
-   pro Zeile) über `lead_nummer_seq` (Migration 0006). NEU/F4 verbrauchen
-   eine neue Nummer, F2/F3 erben `candidate.lead_nummer`
-   (`app/submission.py`). Bestand mit `scripts/backfill_lead_nummer.py`
-   nachnummeriert - Union-Find über duplicate_of UND superseded_by
-   gemeinsam, weil ein Vorgang beide Kantentypen gemischt haben kann
-   (live gefunden: ein 5-zeiliger Cluster aus einer 3-stufigen
-   Korrekturkette PLUS zwei F2-Duplikaten am ersten Glied). Sichtbar in
-   Liste (erste Spalte), Detailansicht ("Lead #N") und CSV (erste
-   Spalte). 19/19 Bestandszeilen erfolgreich nummeriert, live verifiziert
-   über alle vier Dedup-Fälle.
-3. **Nicht jetzt** (Marco: "nach Phase 4"): Kanal-/Bundesland-Dropdowns
-   durch Spalten-Header-Filter ersetzen - als Punkt in der Phase-3-
-   Checkliste unten vermerkt, nicht gebaut.
+**Phase 0-3 vollständig** (Konzept final, Formular + Submit-Pfad inkl.
+Dedup F1-F4/Spam-Erkennung/Korrektur-Link, komplettes Dashboard mit
+Login/Liste/Detailansicht/Aktionen/CSV-Export/Auswertungs-Tab). Details
+in den jeweiligen Phasen-Checklisten unten, dort auch die Live-Tests.
 
-**Phase 4, Block (a) UND (b) sind fertig** (Nominatim-Client + Retry-
-Endpoint, s. Checkliste unten). Die beim ersten Live-Test von Block (a)
-aufgefallene "mehrdeutig"-Häufung wurde vor Block (b) untersucht und
-behoben, wie von Marco verlangt ("halt nach jedem Block an" - Block (a)
-wurde dafür nochmal geöffnet, nicht übersprungen). Block (b) lief
-anschließend mit Marcos ausdrücklicher Freigabe inkl. einer Abweichung von
-Marcos eigenem Vorschlag bei der Portionsgröße (s. Block-(b)-Eintrag
-unten: `GEOCODE_BATCH_SIZE` statt höherem `maxDuration`).
+**Phase 4 (Geocoding), Block (a)-(e) vollständig:**
+- (a) Nominatim-Client (`app/geocoding.py` + reine Auswertung in
+  `app/core/geocoding.py`) - strukturierte Abfrage, Mehrdeutig-Kriterium
+  über Bundesland+Gemeinde-Übereinstimmung (nicht rohe Trefferzahl),
+  Stadtstaaten-Fallback über ISO-3166-2.
+- (b) `POST /admin/retry` (`app/retry.py`), verarbeitet offenes Geocoding
+  und fehlgeschlagene Mails, `RETRY_SECRET`-Header ODER Admin-Session,
+  `GEOCODE_BATCH_SIZE` als Portionsgröße getrennt von der
+  `MAX_GEOCODE_PER_MINUTE`-Ratenbremse.
+- (c) `traffic_light`/`traffic_light_reason` werden bei jedem
+  Schreibvorgang berechnet (`app/traffic_light.py::apply_traffic_light`),
+  nicht mehr live beim Lesen - alle ampel-relevanten Schreibpfade
+  angeschlossen (Submit, Geocoding-Ergebnis, manueller Statuswechsel,
+  Spam-Freigabe, F3-Korrektur).
+- (d) Kandidatenliste bei mehrdeutigen Adressen in der Detailansicht,
+  Button "Geocoding wiederholen" je Lead, globaler Retry-Button in der
+  Liste mit Live-Anzeige von verarbeitet/verbleibend.
+- (e) `.github/workflows/retry-cron.yml`, alle 15 Minuten, braucht
+  `RETRY_URL`/`RETRY_SECRET` in den GitHub-Repo-Einstellungen (Settings >
+  Secrets and variables > Actions) - **noch nicht live getestet**, s.
+  "Nächste Schritte" unten.
 
-**Danach, noch vor Block (c): Marco meldete einen 500er im Dashboard**
-(`geocode_status='simuliert'` fehlte in `app/core/ampel.py`). Vier Punkte
-umgesetzt und live verifiziert - Details im neuen Eintrag zwischen Block
-(b) und (c) unten: Isolierung defekter Zeilen pro Zeile (nicht mehr die
-ganze Liste betroffen), Tab "Alle" sortiert jetzt nach Vorgang, Korrektur-/
-Duplikat-Zugehörigkeit über die Lead-Nummer sichtbar (Layout vorab mit
-Marco abgestimmt) statt über Text-Badges, und die schon länger als
-"später, nach Phase 4" vorgemerkten Spaltenfilter (Ort/Bundesland/Ampel/
-Kanal/Status/Zugewiesen) sind jetzt gebaut.
+**Zwei Dashboard-Korrekturrunden nach Block (e)** (Details in der
+Phase-4-Checkliste unten, jeweils datiert): 17.08. - Zeilen-Isolierung
+(eine defekte Zeile stürzt nicht mehr die ganze Liste ab), Spaltenfilter
+statt der zwei alten Dropdowns. 18.08. - Gruppen-Einfärbung nach
+Lead-Nummer wieder entfernt (war im Standardfilter bedeutungslos, s.
+docs/FUNDE.md), Tab "Alle" zeigt inaktive Zeilen jetzt standardmäßig,
+Lead-Nummer als eigene an/absteigende Sortierung, kompakte Ampel-Legende.
 
-**Block (e) ist gebaut** (`.github/workflows/retry-cron.yml`). Die
-Unklarheit zu Block (c)/(d) war ein Übertragungsfehler, keine
-Scope-Entscheidung: Marco hatte sie "in der Prompt-Kette verloren", beide
-sind weiterhin gewollt und wurden am 17.08. direkt danach umgesetzt (Details
-in der Checkliste unten) - traffic_light/traffic_light_reason jetzt bei
-jedem Schreibvorgang berechnet statt live beim Lesen (alle fünf genannten
-Schreibpfade angeschlossen: Submit, Geocoding-Ergebnis, manueller
-Statuswechsel, Spam-Freigabe, F3-Korrektur), Ampel-Filter läuft seit dem
-als echtes SQL statt Python-Nachfilterung; Kandidatenliste bei
-mehrdeutigen Adressen in der Detailansicht (live mit dem "Lindenweg 3,
-Neustadt"-Testfall bestätigt), Button "Geocoding wiederholen" je Lead,
-globaler Retry-Button mit Live-Anzeige von verarbeitet/verbleibend.
+**Deploy-Fix (17.08.):** `pyproject.toml` brach den Vercel-Build (Datei
+existierte nur für Pytest-Konfiguration, wurde von Vercels `uv`-Build
+aber als Projektdefinition gelesen). Behoben durch Entfernen der Datei
+(Pytest-Konfiguration jetzt in `pytest.ini`) statt einen `[project]`-
+Abschnitt nachzutragen - Letzteres hätte riskiert, dass Vercel
+`requirements.txt` künftig ignoriert. Details + Abwägung in
+docs/FUNDE.md. **Alle Commits sind bei `origin/main` gepusht** (`git
+status` zeigt "up to date"), aber der Fix wurde noch NICHT gegen einen
+echten Vercel-Build verifiziert - unbekannt, ob der Build inzwischen
+durchläuft.
 
-**Damit ist Phase 4 (Block a-e) komplett.** Nächster Schritt laut Marco:
-Deploy, danach der echte Test des Cron-Jobs gegen das laufende
-Deployment (Block (e) wurde bisher nur syntaktisch geprüft, nicht live -
-s. Block-(e)-Eintrag oben, braucht `RETRY_URL`/`RETRY_SECRET` in den
-GitHub-Repo-Einstellungen). Auslandspfad + Landesbauordnung-Zuordnung
-kommen laut Marco separat NACH Block (a)-(e).
+### Aktueller Modul-Stand (`app/`)
 
-**Deploy-Blocker gefunden und behoben (17.08.):** der erste Vercel-Build
-scheiterte an `pyproject.toml` - existierte nur für die Pytest-
-Konfiguration, ohne `[project]`-Abschnitt, wurde von Vercels `uv`-Build
-aber als Projektdefinition gelesen ("No `project` table found"). Fund +
-Entscheidung (Pytest-Konfiguration nach `pytest.ini` verschoben,
-`pyproject.toml` gelöscht statt einen `[project]`-Abschnitt nachzutragen -
-letzteres hätte riskiert, dass Vercel `requirements.txt` künftig komplett
-ignoriert) in docs/FUNDE.md. Noch NICHT gegen ein echtes Deployment
-verifiziert - das ist der nächste Schritt.
+- `main.py` — Formular-Routen (`/`, `/datenschutz`, `/danke`), `POST
+  /submit` (Orchestrierung: Validierung → Normalisierung → Dedup → Mail
+  → Redirect). `load_dotenv()`/`logging.basicConfig()` laufen vor allen
+  `app.*`-Imports (s. docs/FUNDE.md).
+- `admin.py` — Login/Logout, Lead-Liste (`GET /admin`, Tabs/Suche/
+  sechs Spaltenfilter/Sortierung), Detailansicht (`GET
+  /admin/leads/{id}`), Aktionen (Statuswechsel, Mail-Resend, Geocoding-
+  Wiederholung je Lead), CSV-Export, Auswertungs-Tab, `POST
+  /admin/retry`-Route (Auth) und `POST
+  /admin/leads/{id}/geocoding-wiederholen`.
+- `submission.py` — `persist_submission()` (Dedup-Entscheidung F1-F4 aus
+  `app.core.dedup` anwenden, INSERT/UPDATE + Events, eine Transaktion),
+  `row_to_new_lead_data()` (für Mail-Resend/Retry gemeinsam genutzt).
+- `mail.py` — `send_confirmation_email()`, gibt seit Block (b) den
+  resultierenden `email_status` zurück.
+- `geocoding.py` — Nominatim-HTTP-Client, `SERVICE_AREA_STATES` wird
+  beim Modul-Import validiert (fail fast bei unbekanntem Bundesland-
+  Namen).
+- `retry.py` — Retry-Orchestrierung: `run_retry()` (Batch, für Cron/
+  globalen Button), `retry_one_geocode()` (Einzel-Lead, immer versucht,
+  unabhängig vom aktuellen Status).
+- `traffic_light.py` — `apply_traffic_light(conn, lead_id)`, einziger
+  Ort, der `app.core.ampel.ampel()` mit einem DB-Read/Write verbindet.
+- `db.py` — `get_connection()` (Transaction Pooler, `prepare_threshold=
+  None`), `insert_event()`.
+- `config.py` — Env-Konstanten, beim Modul-Import gelesen (fail fast).
+- `templating.py` — gemeinsame `Jinja2Templates`-Instanz.
+- `core/*` — reine Funktionen ohne DB/HTTP, je mit Tests in
+  `tests/core/`: `normalize.py`, `text.py`, `content_hash.py`,
+  `dedup.py`, `merge.py`, `spam.py`, `validation.py`, `channel.py`,
+  `edit_token.py`, `admin_auth.py` (inkl. `verify_retry_secret`),
+  `ampel.py` (Konzept §B, nur noch von `traffic_light.py` aufgerufen,
+  nicht mehr beim Lesen), `display.py`, `geocoding.py` (Konzept §B/§G,
+  inkl. `candidate_summaries()` für Block d).
+- `templates/` — `form.html`, `danke.html`, `datenschutz.html`,
+  `email_confirmation.html`, `admin_login.html`, `admin_dashboard.html`,
+  `admin_lead_detail.html`, `admin_auswertung.html`.
+- `scripts/` — `gen_secrets.py`, `testlauf.py` (40 systematische
+  Randfälle, s. docs/TESTLAUF.md), `backfill_lead_nummer.py`,
+  `backfill_traffic_light.py` (beide bereits einmalig `--apply`
+  ausgeführt, Bestand ist aktuell).
+- Migrationen bis `migrations/0009_geocode_candidate_count.sql`, alle
+  bereits gegen die produktive Supabase-Instanz gelaufen.
 
-**Mehrdeutig-Kriterium korrigiert (17.08., drei Funde, Details in
-docs/FUNDE.md):** Die ursprüngliche Regel ("mehr als ein Nominatim-Treffer
-= mehrdeutig") löste bei vollständigen Adressen fast durchgängig Gelb aus,
-weil Nominatim für dieselbe Stelle oft mehrere OSM-Objekte liefert
-(Gebäude, Ausstattung, Geschäfte) - Marco stoppte deshalb explizit vor
-Block (b) und ließ das erst untersuchen. Neues Kriterium: Kandidaten
-gelten als übereinstimmend, wenn Bundesland UND Gemeinde identisch sind -
-dann `status=ok`, der Kandidat mit höchstem `importance`-Wert gewinnt,
-protokolliert in `geocode_raw.auswahl` (Kandidatenzahl + Einstufung, damit
-später nachvollziehbar bleibt, ob ein Treffer wirklich eindeutig war oder
-unter mehreren ausgewählt wurde). Der Testfall "Lindenweg 3, Neustadt"
-(Aufgabe, keine PLZ) bleibt mehrdeutig (3 echte Bundesländer). Dabei
-zusätzlich gefunden: Nominatim liefert für Berlin und Hamburg (nicht
-durchgängig für Bremen) kein `state`-Feld, nur den ISO-3166-2-Code - über
-eine Lookup-Tabelle behoben, plus neues Feld `geo_state_unresolved`, das
-ein unauflösbares Bundesland sichtbar statt still `None` macht. Beim
-Live-Verifizieren der Fixes zusätzlich gefunden: `SERVICE_AREA_STATES=alle`
-in `.env` (aus der Einrichtungsanleitung übernommen) wurde nicht erkannt
-und ergab `in_service_area=False` für JEDE Adresse, also rote Ampel
-"Außerhalb Deutschlands" für praktisch alles - behoben, "alle" wird jetzt
-als Sentinel erkannt UND jeder Bundesland-Name gegen die echten 16 geprüft
-(ein Tippfehler bricht die Anwendung jetzt beim Start ab, statt still
-einen wirkungslosen Filter zu bilden). Zum Zeitpunkt dieses Funds waren
-bestehende Leads noch nicht betroffen (alle 19 standen noch auf
-`geocode_status='offen'`, Block (b) existierte noch nicht) - der bis dahin
-aufgelaufene Bestand (u.a. aus `scripts/testlauf.py`) wurde erst bei der
-Live-Verifikation von Block (b) tatsächlich geokodiert, s. dort. 33 Tests
-in `tests/core/test_geocoding.py` (vorher 15), alle grün, zusätzlich live
-gegen die echte API neu verifiziert (Berlin/Hamburg/Bremen einzeln
-geprüft, nicht nur Berlin).
+### Tests
 
-**Hinweis für Mail-Tests in dieser Session:** `usage_counters` (Tageslimit,
-`MAX_EMAILS_PER_DAY=50`) steht nach dem intensiven Testen heute bei über 80
-für den UTC-Tag - weitere Mail-Assertions in Tests können `mail_fehlgeschlagen`
-("tageslimit_erreicht") statt `mail_gesendet` sehen. Kein Bug, s. Fund in
-docs/TESTLAUF.md (F2-Fall) - Tests sollten auf "Mail-Versuch fand statt"
-prüfen, nicht auf "Versand war erfolgreich".
+176 Tests, alle grün: `.venv/bin/python -m pytest -q`. Pytest-Konfiguration
+jetzt in `pytest.ini` (nicht mehr `pyproject.toml`, s. Deploy-Fix oben).
 
-**Neu gebaut seit Login:**
-- `app/core/ampel.py` — Ampel-Funktion nach Konzept §B, aus Phase 4
-  vorgezogen (reine Funktion, kein Geocoding nötig). `traffic_light`-Spalte
-  bleibt unbeschrieben, die Liste/Detailansicht berechnen live; das Cachen
-  bei jedem Schreibvorgang ist Teil von Phase 4.
-- `app/core/display.py` — `format_berlin_datetime`, `STATUS_VALUE_LABELS`/
-  `status_label()` (alle status-artigen Spalten), `EVENT_TYPE_LABELS`,
-  `CONTACT_TIME_LABELS` (von `app/mail.py` hierher verschoben).
-  `CHANNEL_LABELS` in `app/core/channel.py`, `SPAM_REASON_LABELS` in
-  `app/core/spam.py`.
-- `app/db.py::insert_event()` — war identisch dupliziert in
-  `submission.py` und `mail.py`, mit `admin.py` als drittem Aufrufer
-  konsolidiert.
-- `GET /admin/leads/{lead_id}` — Detailansicht: alle Felder (auch leere),
-  message prominent, superseded-Kette rückwärts aufgelöst + Banner bei
-  duplicate_of/superseded_by, Event-Historie über die GANZE Kette.
-- `POST /admin/leads/{lead_id}/bearbeitung` + `.../mail-erneut-senden` —
-  Aktionen: Status/assigned_to/disqualify_reason, Mail-Resend. Details s.
-  Phase-3-Checkliste unten.
+### Nächste Schritte (von Marco vorgegeben, in dieser Reihenfolge)
 
-**Beim Bauen gefunden und gefixt (gehört in `docs/FUNDE.md` beim Schreiben
-der NOTES.md, Phase 6):**
-1. `persist_submission()` setzte bei `is_spam=true` nie `status='spam'` -
-   gefixt (Marcos Regel: Dedup-Folgen entfallen bei Spam komplett, kein
-   Vorgänger wird berührt). Commit `7c7df2e`.
-2. Beim Bauen der Aktionen fiel eine Folgeinkonsistenz aus der Zeit VOR
-   Fix 1 auf: Alt-Leads mit `is_spam=true` bei `status='neu'` existieren in
-   der DB. Der erste Entwurf der "Status ändern"-Aktion prüfte
-   is_spam-Sync nur, wenn sich `status` gegenüber der DB änderte - bei so
-   einem Alt-Lead ist die Freigabe (`status='neu'` erneut abschicken) aber
-   keine Änderung, `is_spam` blieb fälschlich `true` stehen. Live-Test
-   deckte es auf, Fix: is_spam/spam_reason/contacted_at richten sich jetzt
-   nach dem eingereichten Status, unabhängig davon ob er sich geändert hat.
+1. **Sortierung in die Spaltenüberschriften verlegen.** Lead-Nummer und
+   Datum werden direkt an der Spaltenüberschrift anklickbar (auf- und
+   absteigend), mit sichtbarer Richtungsanzeige (z.B. Pfeil-Symbol). Die
+   separaten Sortierlinks im `.sort-row` oberhalb der Tabelle
+   (`admin_dashboard.html`) entfallen dafür komplett - auch "Älteste/
+   Neueste zuerst" wandert an die Datums-Spaltenüberschrift.
+2. **Widersprüchliche Hinweistexte bei Korrekturketten korrigieren.**
+   Aktuell (`app/admin.py::_decorate_row`, Badges) steht bei der ALTEN
+   Version "Ersetzt durch Anfrage vom X" (Link zur neuen) und bei der
+   GÜLTIGEN Version "Frühere Version vom X" (Link zur alten) - beide
+   Texte zeigen aufeinander, ohne dass am Text selbst erkennbar wäre,
+   welche der beiden Zeilen die aktuell gültige ist. Formulierung so
+   korrigieren, dass die Richtung (welche Version ist aktuell, welche
+   überholt) direkt am Text ablesbar ist, nicht nur über Kontext/
+   Dämpfung erschließbar.
+3. **Google-Maps-Link direkt in die Liste.** Kleines Symbol in der
+   Ort-Spalte bei Leads mit `lat`/`lon` gesetzt, verlinkt wie in der
+   Detailansicht (`_field_groups`, `maps_link`) nach
+   `https://maps.google.com/?q={lat},{lon}`. Ohne Koordinaten bleibt die
+   Stelle leer (keine Platzhalter-Andeutung). Der bestehende Link in der
+   Detailansicht bleibt zusätzlich bestehen, wird nicht ersetzt.
+4. **Auslandspfad nach Konzept §A.** Eigener, größerer Baustein - nicht
+   nebenbei miterledigen. Umfasst: zweite, separate Mail bei
+   `in_service_area=false` (`ausland_hinweis_status`-Spalte existiert
+   bereits seit Migration 0001, aber ungenutzt), `status='ausland'`
+   (Status-Wert existiert bereits im CHECK-Constraint), Formularfeld
+   `expansion_opt_in` (Spalte existiert bereits, aber kein Formularfeld
+   dafür und keine Logik, die sie setzt oder ausliest). Rechtlich
+   vorsichtige Formulierung s. Konzept §A (keine automatische
+   Weitergabe an Partner, Einwilligung nur durch aktive Antwort). Vor dem
+   Bauen Konzept §A nochmal vollständig lesen, nicht aus der
+   Erinnerung rekonstruieren.
+5. **Landesbauordnungs-Zuordnung als letzter Baustein.** Konzept §C
+   ("Zweite Erweiterung: Bundesland → Landesbauordnung"). Separat NACH
+   Auslandspfad, wie von Marco explizit sortiert.
+6. **Offen aus früheren Runden (Konzept §D):** MX-Prüfung bei
+   E-Mail-Validierung (`check_deliverability=True`, DNS-Lookup, ~100ms -
+   aktuell bewusst nicht eingebaut, s. `app/core/validation.py`-
+   Docstring, Begründung: Netzwerk-Aufruf würde die reine Funktion nicht
+   mehr ohne Netzwerk testbar machen, müsste in `app/main.py` VOR
+   `persist_submission` mit eigenem Timeout laufen). Tippfehler-Vorschlag
+   für bekannte Domains (Levenshtein gegen Liste der 20 häufigsten
+   Domains, "Meinten Sie gmail.com?", kein Blocker, Client-seitig JS +
+   ggf. Server-Hinweis). Beides vor Abgabe bewusst entscheiden: einbauen,
+   oder als Scope-Cut in NOTES.md dokumentieren.
 
-### Module (app/)
-- `main.py` — Routen `/health`, `/` (Formular, inkl. Vorbefüllung über `?k=`),
-  `/datenschutz`, `/danke`, `POST /submit` (Orchestrierung). `load_dotenv()`
-  und `logging.basicConfig()` laufen ganz am Anfang, vor allen `app.*`-Imports
-  (s. `docs/FUNDE.md` — sonst brechen Imports bzw. verschwinden Dry-Run-Logs).
-- `admin.py` — `APIRouter(prefix="/admin")`: Login/Logout, Dashboard mit
-  Lead-Liste (`GET /admin`). Session-Cookie über `app/core/admin_auth.py`
-  (eigenes `SESSION_SECRET`). `_fetch_leads()` baut Tab-/Suche-/Sortier-Query
-  (parametrisiert, LIMIT 500 s. Konzept §10), `_decorate_row()` ruft
-  `app.core.ampel` + `format_berlin_datetime` pro Zeile auf und leitet die
-  fünf Badges aus Konzept §6 her (2 per Subquery: erneut_angefragt/
-  superseded_by-Rückverweis, 3 direkt aus Feldern der Zeile).
-- `submission.py` — `persist_submission()`: Dedup-Kandidat suchen, Entscheidung
-  aus `app.core.dedup` anwenden, INSERT/UPDATE + `lead_events` schreiben, alles
-  auf einer Connection/Transaktion. `resolve_current_lead()` folgt der
-  `superseded_by`-Kette für die Vorbefüllung.
-- `mail.py` — `send_confirmation_email()`: Spam → keine Mail, sonst Tageslimit
-  (`usage_counters`) prüfen, dann `DRY_RUN_EMAIL`-Zweig (volle Logik, kein
-  Versand, Status `simuliert`) oder echter Brevo-Versand. Intro-Text variiert
-  je nach `DedupCase` (`_INTRO_TEXT_BY_CASE`).
-- `app/core/*` — reine Funktionen ohne DB/HTTP, je mit Tabellentest in
-  `tests/core/`: `normalize.py`, `text.py`/`content_hash.py`, `dedup.py`,
-  `merge.py`, `spam.py` (+ `SPAM_REASON_LABELS`), `validation.py`,
-  `channel.py` (+ `CHANNEL_LABELS`), `edit_token.py`, `admin_auth.py`,
-  `ampel.py` (Konzept §B, aus Phase 4 vorgezogen — reine Funktion, braucht
-  kein echtes Geocoding), `display.py` (`format_berlin_datetime`, CLAUDE.md
-  Regel 7).
-- `db.py` — `get_connection()`, `prepare_threshold=None` für den Transaction
-  Pooler, eine Connection pro Request.
-- `config.py` — Kontingent-Env-Werte (`DRY_RUN_EMAIL`, `MAX_EMAILS_PER_DAY`, ...).
-  Docstring dort ist veraltet ("wird von nichts importiert") — wird
-  inzwischen von `app/mail.py` importiert, Kommentar bei Gelegenheit korrigieren.
-- `templating.py` — gemeinsame `Jinja2Templates`-Instanz (verhindert Zirkelimport
-  zwischen `main.py` und `admin.py`).
+Danach committen. Kein Punkt aus dieser Liste ist in der aktuellen
+Session begonnen worden - jeder ist ein eigener, klar abgegrenzter
+Baustein.
 
-### Submit-Pfad (Kurzfassung)
-`POST /submit` → `validate_submission` (422 bei Fehlern, Eingaben bleiben
-erhalten) → `detect_spam` → Normalisierung (`normalize_phone/email/name`) →
-`derive_channel` → `content_hash` → `persist_submission` (F1-F4-Entscheidung,
-bei F3 `merge_fields`) → bei allem außer F1: `send_confirmation_email` (Fehler
-dort brechen den Submit nie ab, CLAUDE.md Regel 2) → PRG-Redirect nach
-`/danke?k=<edit_token>`.
+### Sonstiges, noch offen (kein Bauauftrag, nur Diese-Woche-Erinnerung)
 
-### Dashboard — aktueller Stand
-Vorhanden: Login (`GET/POST /admin/login`), Logout, Platzhalter-Dashboard
-unter `GET /admin` ("Angemeldet als X"). Fehlt komplett: Lead-Liste, Tabs,
-Detailansicht, Aktionen, CSV-Export, Auswertungs-Tab — siehe Phase 3 unten,
-Punkte sind alle noch offen.
-
-### Offene Punkte / Entscheidungen für die nächste Session
-- **MX-Prüfung (Konzept §D):** bewusst NICHT eingebaut. `validate_submission`
-  prüft nur Syntax (`email-validator`, `check_deliverability=False`), keine
-  DNS-Abfrage. Begründung im Docstring von `app/core/validation.py`: ein
-  Netzwerk-Aufruf während der reinen Validierung würde die Funktion nicht mehr
-  ohne Netzwerk testbar machen. Muss vor Abgabe nochmal bewusst entschieden
-  werden (einbauen vor `persist_submission` mit Timeout, oder als Scope-Cut in
-  NOTES.md dokumentieren).
-- **F2-Mailtext:** enthält aktuell einen Gedankenstrich ("... vorliegenden
-  Anfrage — es hat sich nichts geändert."). In `app/mail.py`,
-  `_INTRO_TEXT_BY_CASE[DedupCase.F2_DUPLIKAT]`. Vor Abgabe nochmal gegenlesen,
-  ob das Zeichen so bleiben soll oder umformuliert wird (z.B. mit Punkt statt
-  Gedankenstrich).
-- **Retry-Endpunkt (`POST /admin/retry`) existiert noch nicht.** Fehlgeschlagene
-  Mails (`email_status='fehlgeschlagen'`/`'offen'` nach Tageslimit) bleiben
-  bis dahin unbehandelt liegen. Kommt mit Phase 4 (Geocoding), ist aber auch
-  für Mail-Retries relevant — beim Bauen beide Fälle mitdenken.
-- **Geocoding (Phase 4) noch nicht begonnen:** `DRY_RUN_GEOCODE`/
-  `MAX_GEOCODE_PER_MINUTE` sind in `config.py` vorbereitet, aber nirgends
-  benutzt.
-- `.venv` ist die persistente Projekt-Umgebung (nicht neu anlegen). Aktuell
-  108 pytest-Tests, alle grün (88 + 20 aus `test_ampel.py`/`test_display.py`).
+- **Deploy + Cron-Test:** nach dem nächsten Vercel-Deploy prüfen, ob der
+  Build durchläuft (Deploy-Fix oben), danach `RETRY_URL`/`RETRY_SECRET`
+  in GitHub setzen und den Workflow einmal manuell über "Run workflow"
+  (`workflow_dispatch`) auslösen.
+- **F2-Mailtext:** enthält einen Gedankenstrich ("... vorliegenden
+  Anfrage — es hat sich nichts geändert."), `app/mail.py`,
+  `_INTRO_TEXT_BY_CASE[DedupCase.F2_DUPLIKAT]`. Vor Abgabe gegenlesen.
+- **CSV noch nicht in Excel geöffnet** (Marco macht das selbst).
+- **`app/config.py`-Docstring veraltet** ("wird von nichts importiert" -
+  stimmt nicht mehr, wird inzwischen von mehreren Modulen importiert).
+  Kleinkram, bei Gelegenheit korrigieren.
+- Phase 5 (Abnahme) und Phase 6 (Notizen & Abgabe) unten noch komplett
+  offen, wie geplant erst nach Phase 4.
 
 ## Phase 0 — Konzept fixieren (Chat) ✅ weitgehend
 - [x] Datenmodell + Pipeline + Risiken (KONZEPT v2)
@@ -256,37 +206,37 @@ Punkte sind alle noch offen.
 - [x] Hidden Fields: utm_*, gclid, fbclid, referrer, landing_page, token, rendered_at, Honeypot
 - [x] POST /submit: Server-Validierung (422 re-rendert MIT Eingaben), Normalisierung, content_hash, Dedup-Entscheidung F1-F4, INSERT, PRG
 - [x] F3 Feld-Merge (neu gewinnt bei Konflikt, alt füllt Lücken) + superseded-Kette + Events mit changed_fields/merged_fields
-- [x] E-Mail-Validierung: Client type=email + JS-Tippfehlervorschlag; Server Syntax (email-validator) — **MX-Prüfung bewusst ausgelassen, s. offene Punkte oben**
+- [x] E-Mail-Validierung: Client type=email + JS-Tippfehlervorschlag; Server Syntax (email-validator) — **MX-Prüfung bewusst ausgelassen, s. "Nächste Schritte" Punkt 6 oben**
 - [x] Namens-Normalisierung (nur bei durchgaengig GROSS/klein), name_raw erhalten, Tabellentest inkl. McDonald/van der Berg/Mueller-Luedenscheidt
 - [x] Kanal-Ableitung beim INSERT: channel + channel_source nach Prioritaetsliste, Tabellentest
-- [ ] process_after setzen (Env PROCESS_DELAY_MINUTES, Default 60) — noch nicht gebaut, hängt mit Phase 4 zusammen
+- [x] process_after setzen (Env PROCESS_DELAY_MINUTES) — mit Phase 4 Block (c) verdrahtet, s. docs/FUNDE.md
 - [x] Kontakthinweis im Formular-Footer und auf Fehlerseiten (Env-Variablen)
 - [x] Bestätigungsmail: HTML-Template (Datenzusammenfassung, Korrektur-Hinweis, Erwartung, Kontaktblock), best effort, Statusfelder
-- [x] Mail-Ausnahmen: nur F1 und Spam bekommen keine Mail (Konzept SS E)
+- [x] Mail-Ausnahmen: nur F1 und Spam bekommen keine Mail (Konzept §E)
 - [x] Korrektur-Link mit Vorbefuellung: signiertes Token (itsdangerous, 7 Tage), GET /?k=... befuellt Formular, kein Schreibzugriff
 - [x] Spam-Erkennung: Honeypot, Zeitschwelle, Link-Zaehler im message-Feld, Zeichensatz-Heuristik
 - [x] pytest: normalize_phone (5 Beispielformate), content_hash-Stabilität, dedup_decision F1-F4, merge_fields (neu/leer/beide leer)
 
 ## Phase 3 — Dashboard (So, ~3-4h) ✅
 - [x] Login (Env-Credentials, signierter Cookie, constant-time) — vom Nutzer live getestet, funktioniert
-- [x] Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam(+ausland, s.u.) default aus, Toggle "alles anzeigen"
-- [x] Spalten inkl. Bundesland, Ampel Bearbeitbarkeit (grün/gelb/rot MIT Grundtext, Grund als eigene Spalte/unter Name auf schmal), Kanal (channel + heard_about getrennt) — Beschriftungen durchgängig deutsch, Volltextsuche über Name/E-Mail/Telefon/Ort, Leerzustand mit Meldung statt leerer Tabelle. Noch NICHT vom Nutzer im Browser getestet (nur curl gegen echte Daten).
-- [x] Badges: erneut angefragt / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig, plus anklickbare Verweise ("Duplikat von Anfrage vom X" / "Ersetzt durch Anfrage vom X" / "Frühere Version vom X") zum jeweils verwandten Lead. duplikat/ersetzt/spam/ausland-Zeilen zusätzlich als ganze Zeile gedämpft (`row-inaktiv`), damit man die Dedup-Logik sieht statt sie zu erraten (Marco, 2026-08-16). Standardfilter (§6: diese vier nie im Neu/Bearbeitung/Erledigt-Tab, "Alle" ohne Toggle auch nicht) nochmal explizit über alle Tabs/Toggle-Kombinationen live verifiziert, kein Fund.
-- [x] Detailansicht: alle Felder (auch leere), message prominent, superseded-Kette rückwärts aufgelöst + Banner bei duplicate_of/superseded_by, Event-Historie über die GANZE Kette (nicht nur den aktuellen Datensatz), Google-Maps-Link. Route `GET /admin/leads/{lead_id}`, verlinkt aus der Liste. Live gegen echte F3-Korrekturkette + Spam-Lead getestet, noch nicht im Browser vom Nutzer.
-- [x] Aktionen: Status ändern (nur die 5 manuell sinnvollen Werte, s. `_MANUALLY_SETTABLE_STATUSES`), assigned_to, disqualify_reason als ein Formular (`POST /admin/leads/{id}/bearbeitung`), "Mail erneut senden" einzeln (`POST .../mail-erneut-senden`, ruft `send_confirmation_email` direkt). Status-Wechsel synct is_spam mit (Konzept §J: Fehlalarm manuell freigeben UND übersehenen Spam nachträglich markieren), setzt contacted_at automatisch beim ersten Wechsel auf 'kontaktiert', schreibt status_geaendert/zugewiesen-Events. Live getestet inkl. Selbstheilung eines inkonsistenten Alt-Leads (is_spam=true bei status='neu' aus der Zeit vor dem Spam-Fix) — **"Geocoding erneut"/globaler Retry-Button weiterhin nicht gebaut**, dafür gibt es vor Phase 4 nichts zum Retryen
-- [x] CSV: `GET /admin/export.csv`, Semikolon, UTF-8 BOM (`utf-8-sig`), Europe/Berlin, deutsche Header, 27 Spalten (alle Eingabefelder + Kanal/Kanal-Quelle/Status/Ampel/Ampel-Grund + Qualitätsflags). Läuft über dieselben `_fetch_leads`/`_decorate_row` wie die Liste, damit Filter/Suche/Sortierung nie auseinanderlaufen können. Leere Felder als "" statt "–" (pivot-tauglich). Live getestet: BOM vorhanden, Filter/Suche respektiert (tab=neu → nur 2 Zeilen, Suche "Stuttgart" → nur Stuttgart-Zeilen), Sonderzeichen-Escaping mit echtem Semikolon+Zeilenumbruch+Anführungszeichen in einer Anmerkung geprüft (RFC4180 über csv-Modul, rundet exakt). **Noch nicht in Excel geöffnet** - das macht Marco selbst, deshalb hier angehalten.
-- [x] Tab Auswertung (`GET /admin/auswertung`): GROUP BY **channel** (nicht utm_source, s. §H)/campaign/heard_about/Bundesland als Links statt Dropdown (kein JS), alle 8 Spalten aus §7, "Basis: n" pro Zeile, Quoten unter n=10 grau/kursiv, Kreuztabelle Kanal×Bundesland. Live gegen echte Daten verifiziert (Zahlen von Hand gegengerechnet, exakte Übereinstimmung). Fund beim Bauen behoben: `utm_campaign` wird beim Submit nicht leer→NULL normalisiert (anders als heard_about/phone/name) - ohne `NULLIF(...,'')` in der Query erschienen zwei optisch identische "(keine Angabe)"-Zeilen für NULL und ''. Query-seitig gefixt, Ursache in `main.py` (Submit-Handler) nicht angefasst - dort betrifft es auch utm_source/medium/term/content/gclid/fbclid/referrer/landing_page, nicht nur campaign.
-- [x] **17.08. umgesetzt** (nach Block (b), wie damals vorgemerkt): die zwei Dropdown-Filter (Kanal, Bundesland) oben durch Filter an den Spaltenüberschriften Ort, Bundesland, Ampel, Kanal, Status und Zugewiesen ersetzt, jeweils aus `_distinct_values()` (echte DB-Werte, nicht mehr die feste Liste). Ampel als einzige Ausnahme mit fester kleiner Liste statt DISTINCT-Query, weiterhin so nach Block c: keine gespeicherte Spalte kann `defekt` enthalten (Python-only Fallback), die Liste muss diese Option deshalb unabhängig von den tatsächlich vorkommenden `traffic_light`-Werten anbieten. Der Filter selbst läuft seit Block c als echtes SQL-WHERE (`l.traffic_light = ...` bzw. `IS NULL` für `defekt`), nicht mehr als Python-Nachfilterung. Allgemeine Suche bleibt oben. Details s. neuer Punkt unter Block (b) unten.
+- [x] Tabs Neu/In Bearbeitung/Erledigt/Alle; duplicate/superseded/spam/ausland in Neu/Bearbeitung/Erledigt default aus (Toggle "alles anzeigen"), in Alle seit 18.08. umgekehrt default AN (Toggle blendet aus)
+- [x] Spalten inkl. Bundesland, Ampel (traffic_light, seit Block c bei jedem Schreibvorgang berechnet statt live), Kanal (channel + heard_about getrennt) — Beschriftungen durchgängig deutsch, Volltextsuche über Name/E-Mail/Telefon/Ort, Leerzustand mit Meldung statt leerer Tabelle. Vom Nutzer im Browser getestet, funktioniert.
+- [x] Badges: erneut angefragt / Kontakt bekannt / Telefon prüfen / Adresse mehrdeutig, plus anklickbare Verweise ("Duplikat von Anfrage vom X" / "Ersetzt durch Anfrage vom X" / "Frühere Version vom X") zum jeweils verwandten Lead — **Hinweistexte bei Ketten widersprüchlich/richtungslos, s. "Nächste Schritte" Punkt 2 oben**. duplikat/ersetzt/spam/ausland-Zeilen zusätzlich als ganze Zeile gedämpft (`row-inaktiv`), damit man die Dedup-Logik sieht statt sie zu erraten. "Version X von Y" im Status bei mehrzeiligen Vorgängen (`_fetch_vorgang_positions`, über ALLE Zeilen des Vorgangs, nicht nur die im Tab sichtbaren).
+- [x] Detailansicht: alle Felder (auch leere), message prominent, superseded-Kette rückwärts aufgelöst + Banner bei duplicate_of/superseded_by, Event-Historie über die GANZE Kette (nicht nur den aktuellen Datensatz), Google-Maps-Link, Kandidatenliste bei mehrdeutig (Block d), Aktionen inkl. Geocoding-Wiederholung. Route `GET /admin/leads/{lead_id}`, verlinkt aus der Liste.
+- [x] Aktionen: Status ändern (nur die 5 manuell sinnvollen Werte, s. `_MANUALLY_SETTABLE_STATUSES`), assigned_to, disqualify_reason als ein Formular (`POST /admin/leads/{id}/bearbeitung`), "Mail erneut senden" einzeln, "Geocoding wiederholen" einzeln (Block d), globaler Retry-Button (Block d). Status-Wechsel synct is_spam mit (Konzept §J), setzt contacted_at automatisch, schreibt Events, aktualisiert traffic_light (Block c).
+- [x] CSV: `GET /admin/export.csv`, Semikolon, UTF-8 BOM (`utf-8-sig`), Europe/Berlin, deutsche Header. Läuft über dieselben `_fetch_leads`/`_decorate_row` wie die Liste, damit Filter/Suche/Sortierung nie auseinanderlaufen können. **Noch nicht in Excel geöffnet** - das macht Marco selbst.
+- [x] Tab Auswertung (`GET /admin/auswertung`): GROUP BY channel/campaign/heard_about/Bundesland, alle 8 Spalten aus §7, "Basis: n" pro Zeile, Quoten unter n=10 grau/kursiv, Kreuztabelle Kanal×Bundesland. Live gegen echte Daten verifiziert.
+- [x] Spaltenfilter (Ort/Bundesland/Ampel/Kanal/Status/Zugewiesen) statt der zwei ursprünglichen Dropdowns, aus tatsächlich vorhandenen DB-Werten (`_distinct_values`), Ampel-Filter läuft seit Block c als echtes SQL. **Sortierung wandert als nächstes ebenfalls in die Spaltenüberschriften, s. "Nächste Schritte" Punkt 1 oben.**
 
-## Phase 4 — Geocoding (Mo, ~2-3h) — Block (a)-(e) fertig, damit Phase 4 durch
-- [x] **Block (a):** Nominatim-Client, zweigeteilt: `app/core/geocoding.py` (reine Auswertung einer bereits geparsten Antwort, testbar ohne Netzwerk, 33 Tests inkl. Nominatims uneinheitlicher Gemeinde-Schlüssel city/town/village/... und Pilot-Einzugsgebiet) + `app/geocoding.py` (echter Client: structured query street/city/postalcode getrennt, countrycodes=de, limit=5, format=jsonv2, addressdetails=1, User-Agent aus NOMINATIM_USER_AGENT-Env - fehlt der, wird gar nicht erst angefragt statt mit leerem Default, Timeout 3s). Status ok/mehrdeutig/nicht_gefunden (fehlgeschlagen kommt vom Client bei Netzwerk-/HTTP-Fehlern), volle Antwort + Auswahl-Protokoll für geocode_raw, Bundesland/Gemeinde/Koordinaten/in_service_area (+ geo_country als ISO-Code, nicht explizit gefordert aber dieselbe Antwort, günstig für die Ampel-Auslandsregel) abgeleitet. `in_service_area=None` (nicht `False`) wenn gar kein Bundesland ermittelbar war - "wissen wir nicht" ≠ "liegt draußen", dieselbe Unterscheidung wie in app/core/ampel.py. DRY_RUN_GEOCODE bewusst NICHT hier geprüft, sondern für Block (b) vorgesehen (wie MAX_GEOCODE_PER_MINUTE eine Frage des Retry-Laufs, nicht des Clients). **Mehrdeutig-Kriterium 17.08. korrigiert** (Bundesland+Gemeinde-Übereinstimmung statt roher Trefferzahl, `importance`-Tie-Breaker, Auswahl-Protokoll in `geocode_raw.auswahl`), dabei zwei weitere Live-Funde behoben (fehlendes `state`-Feld bei Berlin/Hamburg via ISO-3166-2-Fallback + neues `geo_state_unresolved`-Flag; `SERVICE_AREA_STATES=alle` wurde nicht erkannt und ergab `in_service_area=False` für alles - jetzt Sentinel-Erkennung plus Validierung beim Modul-Import). Alle drei Funde in docs/FUNDE.md. Live gegen die echte Nominatim-API neu verifiziert (Berlin/München jetzt korrekt "ok" statt "mehrdeutig", Lindenweg-3-Testfall weiterhin "mehrdeutig", Hamburg/Bremen einzeln auf das state-Feld geprüft).
-- [x] **Block (b):** `POST /admin/retry` (`app/retry.py` + Route in `app/admin.py`), zwei Nachweise akzeptiert (Session-Cookie ODER `X-Retry-Secret`-Header, `verify_retry_secret` in `app/core/admin_auth.py`, `hmac.compare_digest`), Antwort JSON (Darstellung im Dashboard ist Block (d)s Entscheidung). Filtert immer auf `process_after <= now()` (CLAUDE.md), für Geocoding UND Mail auf `status IN ('offen','fehlgeschlagen')` - `mehrdeutig`/`nicht_gefunden` sind abgeschlossene Ergebnisse, kein Retry-Fall. Geocoding: `MAX_GEOCODE_PER_MINUTE` als Ratenbremse (usage_counters, counter_key `geocode_minute`) GETRENNT von `GEOCODE_BATCH_SIZE` (neues Env, Default 5) als Portionsgröße pro Aufruf - Marcos Vorgabe, "kurze wiederholbare Portionen statt eines Laufs, der gegen ein Zeitlimit drückt", 1.1s Pause zwischen Nominatim-Anfragen. Antwort meldet `verarbeitet` UND `verbleibend` (Backlog-Größe) getrennt für Geocoding/Mail - ausdrücklich verlangt, sonst nicht erkennbar ob eine Portion reichte. DRY_RUN_GEOCODE spiegelt DRY_RUN_EMAIL exakt (Kontingent-Zähler/Versuche/Event laufen voll durch, nur der echte Aufruf entfällt) → neuer `geocode_status='simuliert'` (Migration 0007, analog 0002). Neues Feld `geo_state_unresolved` (Migration 0008) wird jetzt tatsächlich persistiert. F3-Korrektur: `_supersede()` in `app/submission.py` setzt Vorgänger auf `geocode_status='entfaellt'` NUR wenn dessen Geocoding noch offen/fehlgeschlagen war (§G-Grenzfall: ein bereits geokodierter Vorgänger bleibt stehen). `send_confirmation_email()` gibt jetzt den resultierenden Status zurück (für die Zusammenfassung, ohne erneute Abfrage); `_row_to_new_lead_data` von `app/admin.py` nach `app/submission.py::row_to_new_lead_data` verschoben (jetzt von admin.py UND retry.py genutzt). **Zusätzlich `PROCESS_DELAY_MINUTES` verdrahtet** (war dokumentiert, aber wirkungslos - Fund, s. docs/FUNDE.md; `_insert_lead` setzt `process_after` jetzt explizit aus dem Env-Wert statt dem SQL-Spaltendefault). Live verifiziert (lokaler Server, `PROCESS_DELAY_MINUTES=0`): Auth (401 ohne/mit falschem Secret), echtes Geocoding inkl. Portionsgrenze und Backlog-Anzeige (9 Kandidaten → 5+4 über zwei Aufrufe), Kontingent-Erschöpfung mitten in der Verarbeitung (Rest bleibt unangetastet liegen), DRY_RUN_GEOCODE inkl. Kontingent-Prüfung, F3 → Vorgänger `entfaellt` UND vom Retry ausgeschlossen, Mail-Retry-Erholung von `tageslimit_erreicht`. Keine automatisierten Tests für `app/retry.py` selbst (wie `app/mail.py`/`app/geocoding.py`/`app/admin.py` - CLAUDE.md Regel 5 gilt nur für app/core/*), aber `verify_retry_secret` (app/core/admin_auth.py) pur und getestet.
-- [x] **17.08., zwischen Block (b) und (e):** Marco meldete einen 500er im Dashboard - `geocode_status='simuliert'` (neu seit Block b) fehlte in `app/core/ampel.py`, das bei jedem unbekannten Wert bewusst wirft (CLAUDE.md Regel 3). Der eigentliche Fund war nicht der fehlende Wert, sondern dass diese korrekte Absicherung ungeschützt in der Schleife über die ganze Lead-Liste saß - EIN betroffener Lead riss die GANZE Liste mit ab (s. docs/FUNDE.md). Vier Punkte umgesetzt: (1) Isolierung pro Zeile: `_decorate_row_safe()` fängt jeden Fehler einzeln ab, eine defekte Zeile erscheint mit eigenem Ampel-Status "defekt" (Rand/Musterung statt Farbe) und Text "Fehler bei der Anzeige" statt die Liste zu zerstören - live mit einer absichtlich kaputten Zeile verifiziert. (2) Tab "Alle" sortiert jetzt standardmäßig nach Vorgang (`lead_nummer DESC`, innerhalb derselben Nummer `created_at ASC`) statt neueste zuerst - Neu/Bearbeitung bleiben bei ältester zuerst (Warteschlange), Erledigt kann eine 'ersetzt'-Zeile per Tab-Filter ohnehin nie zeigen. (3) Zugehörigkeit jetzt über die Lead-Nummer sichtbar statt über die Badges "Teil einer Korrekturkette/Duplikatgruppe" (ersatzlos gestrichen, samt `_kette_info`/`_duplikatgruppe_info`): zusammengehörige Zeilen teilen sich einen getönten Hintergrund als EIN Block ohne Trennstrich dazwischen (Layout-Vorschlag mit Marco abgestimmt, Screenshots/ASCII-Mockup vorab gezeigt), Status zeigt "{Status}, Version {Position} von {Gesamt}" (z.B. "Ersetzt, Version 1 von 2") - Position/Gesamt über `_fetch_vorgang_positions()` per Fenster-Funktion, ausdrücklich über ALLE Zeilen mit dieser Nummer (nicht nur die im aktuellen Tab sichtbaren), sonst hätte ein gefilterter Tab eine falsch kleine Gruppengröße gezeigt. Live mit den drei realen Fällen aus Marcos Meldung verifiziert (Thomas Ahrens #12, Kai Ruthenberg #14, Jörg Klöpper #15 - alle drei jetzt direkt benachbart mit korrekter Versionsangabe). (4) Spaltenfilter wie oben unter Phase 3 vermerkt.
-- [x] **Block (c) (17.08., nachträglich - Marco: "hatte sie in der Prompt-Kette verloren, weiterhin gewollt"):** `traffic_light`/`traffic_light_reason` (Spalten existierten seit Migration 0001, aber nie befüllt) werden jetzt bei jedem Schreibvorgang berechnet statt live bei jedem Lesen - `app/core/ampel.py` bleibt reine Funktion, `app/traffic_light.py::apply_traffic_light(conn, lead_id)` ist der einzige Ort, der sie mit einem frischen DB-Read/Write verbindet (ein Read mehr pro Schreibvorgang, bei diesem Datenvolumen irrelevant). Alle fünf von Marco genannten Schreibpfade angeschlossen: Submit (`_insert_lead`, direkt nach dem INSERT), Geocoding-Ergebnis (alle drei Fälle in `app/retry.py`: Erfolg/mehrdeutig/nicht_gefunden, simuliert, fehlgeschlagen), manueller Statuswechsel UND Spam-Freigabe (beide über `update_lead_bearbeitung`, ein einziger unbedingter Aufruf statt einer Bedingung auf einzelne Feldnamen - vermeidet, dass ein künftig neues ampel-relevantes Feld denselben "vergessene Stelle"-Fund reproduziert), F3-Korrektur (`_supersede()`, Ampel des VORGÄNGERS neu berechnet, weil sich dessen geocode_status auf 'entfaellt' geändert haben kann). Neue Spalte `geocode_candidate_count` (Migration 0009) - stand vorher nur im lead_events-Payload, nie abrufbar für die Ampel-Begründung "N mögliche Orte". Bestand per `scripts/backfill_traffic_light.py --apply` nachgerechnet (rechnet `geocode_candidate_count` für bestehende mehrdeutig-Zeilen zusätzlich rein aus dem gespeicherten `geocode_raw` nach, kein neuer Nominatim-Aufruf), 32/32 Zeilen erfolgreich, Ampel-Verteilung geprüft (6 grün/5 gelb/11 grau/4 schwarz/6 rot). Liste/Detailansicht lesen jetzt nur noch `row["traffic_light"]` statt `ampel()` erneut aufzurufen - fehlt der Wert (sollte nie vorkommen), wirft `_decorate_row()` das laut, die Isolierung aus dem vorherigen Punkt fängt es in der Liste als "defekt" auf (Detailansicht bewusst ungefangen, ein einzelner 500er reißt dort nichts mit). Ampel-Filter danach auf SQL umgestellt (`l.traffic_light = ...`, `defekt` → `IS NULL`) statt der Python-Nachfilterung. Live verifiziert: alle fünf Schreibpfade einzeln getestet (Submit → grau/"Prüfung läuft"; Geocoding-Ergebnis → korrekt kaskadierende Ampel bis zur Telefon-Regel; F3 → Vorgänger korrekt auf grau/"Geocoding entfällt..."; Spam setzen/freigeben → schwarz und zurück), SQL-Ampel-Filter gegen echte DB-Zählung abgeglichen, `defekt`-Filter mit einer künstlich auf NULL gesetzten Zeile bestätigt (fand genau diese eine Zeile, keine andere).
-- [x] **Block (d) (17.08.):** Kandidaten bei `geocode_status='mehrdeutig'` in der Detailansicht - neue reine Funktion `candidate_summaries()` in `app/core/geocoding.py` (Bundesland+Gemeinde je Kandidat aus den bereits gespeicherten rohen Nominatim-Ergebnissen in `geocode_raw`, kein neuer API-Aufruf), gerendert als eigene Tabelle unterhalb der Feldgruppen, nur sichtbar wenn Kandidaten da sind. Live mit dem echten "Lindenweg 3, Neustadt"-Testfall aus der Aufgabe verifiziert - zeigt korrekt alle drei Orte (Baden-Württemberg/Schleswig-Holstein/Sachsen) mit vollem Nominatim-Namen. Button "Geocoding wiederholen" je Lead (`POST /admin/leads/{id}/geocoding-wiederholen`, neue Funktion `retry_one_geocode()` in `app/retry.py` - anders als der Batch-Lauf IMMER versucht, unabhängig vom aktuellen geocode_status, respektiert aber weiterhin MAX_GEOCODE_PER_MINUTE/DRY_RUN_GEOCODE). Globaler Retry-Button in der Liste: ruft `POST /admin/retry` per `fetch()` auf (kleines Vanilla-JS, kein Framework) und zeigt die Antwort direkt an - **verarbeitet UND verbleibend** für Geocoding und Mail getrennt, wie ausdrücklich verlangt ("nicht nur eine Erfolgsmeldung"), nicht nur ein generisches "fertig". Beide Buttons live getestet (Einzel-Button: geocode_status offen→ok, Ampel korrekt aktualisiert; globaler Button: JSON-Antwort wie im curl-Test aus Block b). Google-Maps-Link existierte schon seit Phase 3 (`_field_groups`), nicht neu gebaut.
-- [x] **18.08., Korrektur nach Marcos Export-Analyse - überholt die "Blockweise Tönung" aus dem 17.08.-Eintrag oben (Punkt 3):** Marco hatte die Liste als CSV/Screenshots durchgesehen. Vier Punkte: (1) Die Blockeinfärbung entfernt - im Standardfilter (Duplikate/Ersetzt ausgeblendet) bestand jede Lead-Nummer-Gruppe ohnehin nur aus einer Zeile, die Farbe wurde zu einem bedeutungslosen Zebramuster über Einzelzeilen, und Blau las sich zudem wie eine Hervorhebung, nicht wie eine Dämpfung. Ersetzt durch eine einzige, bereits vorhandene Regel: `row-inaktiv` (Duplikat/Ersetzt/Spam/Ausland) dämpft, alles andere nicht - keine neue Mechanik nötig, nur die verwirrende zusätzliche entfernt. (2) Tab "Alle" zeigt inaktive Zeilen jetzt standardmäßig (Tab heißt "Alle"), Schalter blendet dort aus statt ein - `show_all`/`sort_mode` folgen jetzt demselben explizit/Tab-Default-Muster (`alle=0`/`alle=1` statt nur Anwesenheit des Parameters, sonst ließe sich "im Alle-Tab explizit ausblenden" nicht von "kein Wunsch geäußert" unterscheiden). (3) Lead-Nummer als eigene, in beide Richtungen anklickbare Sortierung (`nummer_auf`/`nummer_ab`, `lead_nummer ASC/DESC` mit `created_at ASC` als Tiebreaker) - ersetzt den Sonderfall "vorgang"-Sortiermodus, der jetzt overflüssig war. (4) Kompakte einzeilige Legende über der Liste (Bearbeitbar/Prüfen/Problem - Konzept §0-Begriffe - plus Ausstehend/Spamverdacht für grau/schwarz, plus Dämpfung erklärt), bewusst kein Kasten. Live geprüft: Tab "Alle" ohne Parameter zeigt jetzt alle 37 statt 21 Zeilen, Toggle-Text kippt korrekt auf "Nur aktive Leads anzeigen"; `sort=nummer_auf`/`nummer_ab` sortiert korrekt; die von Marco genannten Nummern 6/12/14/15/17 stehen nach Lead-Nummer sortiert jeweils direkt untereinander, mit exakt einer normal dargestellten (nicht gedämpften) Zeile pro Gruppe - keine Ausnahme.
-- [x] **Block (e):** `.github/workflows/retry-cron.yml`, `schedule: */15 * * * *` (Standard-Cron-Syntax für "alle 15 Minuten") + `workflow_dispatch` (manueller Anstoß im GitHub-UI zum Testen ohne zu warten). `curl -sS --fail` gegen `${{ vars.RETRY_URL }}/admin/retry` mit Header `X-Retry-Secret: ${{ secrets.RETRY_SECRET }}` - `--fail` lässt den Job sichtbar rot werden statt eine tote Verbindung/falsches Secret stillschweigend zu ignorieren. Braucht zwei Werte in den Repo-Einstellungen (Settings > Secrets and variables > Actions), die NICHT von hier aus gesetzt werden können: Variable `RETRY_URL` (Basis-URL des Vercel-Deployments) und Secret `RETRY_SECRET` (identisch mit `.env`). **Ehrlich zum Stand:** YAML-Syntax lokal geprüft (`yaml.safe_load`), aber NICHT gegen ein echtes Deployment live verifiziert - dafür fehlen die tatsächliche Vercel-URL und die Möglichkeit, GitHub Actions von hier aus auszulösen. Marco sollte nach dem nächsten Deploy einmal manuell über "Run workflow" (workflow_dispatch) im GitHub-UI testen.
-- [ ] Auslandspfad (status=ausland, zweite Mail, expansion_opt_in) und Bundesland→Landesbauordnung-Mapping: laut Marco separat NACH (a)-(e), nicht Teil dieser Reihenfolge
+## Phase 4 — Geocoding (Mo, ~2-3h) — Block (a)-(e) fertig ✅
+- [x] **Block (a):** Nominatim-Client, zweigeteilt: `app/core/geocoding.py` (reine Auswertung, testbar ohne Netzwerk) + `app/geocoding.py` (echter Client: structured query street/city/postalcode getrennt, countrycodes=de, limit=5, format=jsonv2, addressdetails=1, User-Agent aus NOMINATIM_USER_AGENT-Env, Timeout 3s). Status ok/mehrdeutig/nicht_gefunden/fehlgeschlagen. Mehrdeutig-Kriterium: Bundesland+Gemeinde-Übereinstimmung (nicht rohe Trefferzahl), `importance`-Tie-Breaker, Auswahl-Protokoll in `geocode_raw.auswahl`. Stadtstaaten-Fallback über ISO-3166-2-lvl4 (Berlin/Hamburg fehlt das `state`-Feld bei Nominatim, Bremen nicht durchgängig), `geo_state_unresolved`-Flag macht ein unauflösbares Bundesland sichtbar statt still `None`. Drei Funde dabei in docs/FUNDE.md (Mehrdeutig-Kriterium selbst, Stadtstaaten, `SERVICE_AREA_STATES=alle` wurde nicht erkannt).
+- [x] **Block (b):** `POST /admin/retry` (`app/retry.py` + Route in `app/admin.py`), Session-Cookie ODER `X-Retry-Secret`-Header. Filtert immer auf `process_after <= now()`, für Geocoding UND Mail auf `status IN ('offen','fehlgeschlagen')`. `MAX_GEOCODE_PER_MINUTE` (Ratenbremse, usage_counters) getrennt von `GEOCODE_BATCH_SIZE` (Portionsgröße pro Aufruf, Default 5), 1.1s Pause zwischen Nominatim-Anfragen. Antwort meldet `verarbeitet` UND `verbleibend` getrennt für Geocoding/Mail. DRY_RUN_GEOCODE spiegelt DRY_RUN_EMAIL (→ `geocode_status='simuliert'`, Migration 0007). `geo_state_unresolved` (Migration 0008) wird persistiert. F3-Korrektur setzt Vorgänger auf `geocode_status='entfaellt'` nur wenn dessen Geocoding noch offen/fehlgeschlagen war. `PROCESS_DELAY_MINUTES` zusätzlich verdrahtet (war dokumentiert, aber wirkungslos, s. docs/FUNDE.md).
+- [x] **17.08., Dashboard-Korrektur nach einem 500er:** `geocode_status='simuliert'` fehlte in `app/core/ampel.py` (wirft bei jedem unbekannten Wert bewusst, CLAUDE.md Regel 3) - ein einzelner betroffener Lead riss die GANZE Liste ab, weil `ampel()` ungeschützt in einer Schleife über alle Zeilen lief. Behoben: Zeilen-Isolierung (`_decorate_row_safe()`, defekte Zeile bekommt eigenen Ampel-Status "defekt" statt die Liste zu zerstören), plus bei derselben Gelegenheit: Sortierung/Gruppierung nach Vorgang (später am 18.08. korrigiert, s.u.), Spaltenfilter (s. Phase 3 oben).
+- [x] **Block (c):** `traffic_light`/`traffic_light_reason` (Spalten seit Migration 0001, nie befüllt) werden bei jedem Schreibvorgang berechnet statt live beim Lesen. `app/traffic_light.py::apply_traffic_light(conn, lead_id)` einziger Ort, der `app/core/ampel.py` (bleibt reine Funktion) mit einem DB-Read/Write verbindet. Alle fünf ampel-relevanten Schreibpfade angeschlossen: Submit (`_insert_lead`), Geocoding-Ergebnis (alle drei Fälle in `app/retry.py`), manueller Statuswechsel UND Spam-Freigabe (ein unbedingter Aufruf in `update_lead_bearbeitung`, nicht an einzelne Feldnamen gebunden), F3-Korrektur (`_supersede()`, Ampel des VORGÄNGERS). Neue Spalte `geocode_candidate_count` (Migration 0009). Bestand per `scripts/backfill_traffic_light.py --apply` nachgerechnet, 32/32 Zeilen. Liste/Detailansicht lesen nur noch `row["traffic_light"]`. Ampel-Filter läuft seither als echtes SQL statt Python-Nachfilterung.
+- [x] **Block (d):** Kandidaten bei `geocode_status='mehrdeutig'` in der Detailansicht (`candidate_summaries()` in `app/core/geocoding.py`, aus bereits gespeichertem `geocode_raw`, kein neuer API-Aufruf) - live mit dem "Lindenweg 3, Neustadt"-Testfall verifiziert. Button "Geocoding wiederholen" je Lead (`retry_one_geocode()`, immer versucht, respektiert aber weiterhin Kontingent/DRY_RUN). Globaler Retry-Button in der Liste (`fetch()`, zeigt verarbeitet/verbleibend direkt an).
+- [x] **18.08., Korrektur nach Marcos Export-Analyse (überholt die "Blockweise Tönung" vom 17.08.):** Gruppen-Einfärbung entfernt - im Standardfilter bestand jede Lead-Nummer-Gruppe ohnehin nur aus einer Zeile, die Farbe war ein bedeutungsloses Zebramuster in einer Farbe (Blau), die wie eine Hervorhebung liest statt wie eine Dämpfung (Fund in docs/FUNDE.md). Ersetzt durch die bereits vorhandene `row-inaktiv`-Regel allein. Tab "Alle" zeigt inaktive Zeilen jetzt standardmäßig (Tab heißt "Alle"), Schalter blendet dort aus statt ein. Lead-Nummer als eigene, in beide Richtungen anklickbare Sortierung (`nummer_auf`/`nummer_ab`), ersetzt den überflüssig gewordenen "vorgang"-Sondermodus. Kompakte einzeilige Ampel-Legende über der Liste. Live geprüft: Nummern 6/12/14/15/17 stehen nach Lead-Nummer sortiert direkt untereinander, exakt eine normal dargestellte Zeile pro Gruppe.
+- [x] **Block (e):** `.github/workflows/retry-cron.yml`, `schedule: */15 * * * *` + `workflow_dispatch`. `curl -sS --fail` gegen `${{ vars.RETRY_URL }}/admin/retry` mit `X-Retry-Secret`-Header. Braucht `RETRY_URL`(Variable)/`RETRY_SECRET`(Secret) in den GitHub-Repo-Einstellungen. YAML-Syntax lokal geprüft, **noch nicht live gegen ein Deployment getestet**.
+- [ ] Auslandspfad (Konzept §A) und Bundesland→Landesbauordnung-Mapping (Konzept §C): s. "Nächste Schritte" Punkt 4/5 oben, mit genauerer Beschreibung als hier.
 
 ## Phase 5 — Abnahme (Di, ~2-3h)
 - [ ] Fünf Beispielanfragen vom Handy (fiktive Mails, einmal mit ?utm_source=meta&utm_campaign=test)
