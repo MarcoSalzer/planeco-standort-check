@@ -75,7 +75,9 @@ def parse_service_area_states(raw: str) -> set[str]:
 
 @dataclass(frozen=True)
 class GeocodeResult:
-    status: str  # ok | mehrdeutig | nicht_gefunden (fehlgeschlagen kommt aus app/geocoding.py, nicht von hier)
+    status: str  # ok | mehrdeutig | nicht_gefunden (fehlgeschlagen kommt aus app/geocoding.py, nicht von hier;
+    # 'nur_ort' entsteht ebenfalls erst in app/geocoding.py::geocode() - eine Umbenennung eines hier
+    # gelieferten 'ok'-Ergebnisses für den PLZ+Ort-Rückfall, kein eigener Rückgabewert dieser Funktion)
     raw: dict | None  # {"results": [...], "auswahl": {...}}, für geocode_raw - vollständige Antwort + Nachvollziehbarkeit der Entscheidung
     candidate_count: int  # bei mehrdeutig: Anzahl WIRKLICH verschiedener Orte (nicht roher Trefferzahl); bei ok immer 1
     lat: float | None

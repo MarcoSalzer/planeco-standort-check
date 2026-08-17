@@ -67,6 +67,7 @@ STATUS_VALUE_LABELS: dict[str, str] = {
     "ok": "OK",
     "mehrdeutig": "Mehrdeutig",
     "nicht_gefunden": "Nicht gefunden",
+    "nur_ort": "Nur Ort bestätigt",
     "entfaellt": "Entfällt",
     "nicht_noetig": "Nicht nötig",
 }

@@ -28,7 +28,7 @@ from app.config import DRY_RUN_GEOCODE, GEOCODE_BATCH_SIZE, MAX_GEOCODE_PER_MINU
 from app.core.dedup import DedupCase
 from app.core.geocoding import GeocodeResult
 from app.db import get_connection, insert_event
-from app.geocoding import geocode
+from app.geocoding import NOMINATIM_MIN_INTERVAL_SECONDS, geocode
 from app.mail import send_auslandshinweis_email, send_confirmation_email
 from app.submission import NewLeadData, row_to_new_lead_data
 from app.traffic_light import apply_traffic_light
@@ -37,10 +37,6 @@ logger = logging.getLogger(__name__)
 dry_run_logger = logging.getLogger("app.retry.dry_run")
 
 COUNTER_KEY_GEOCODE_PER_MINUTE = "geocode_minute"
-# Nominatim-Nutzungsbedingungen: max. 1 Anfrage/Sekunde. >1.0 als
-# Sicherheitsspanne (Uhr-/Netzwerk-Jitter), s. auch die manuelle
-# Live-Verifikation in Phase 4 Block a (dort 1.2-1.5s verwendet).
-NOMINATIM_MIN_INTERVAL_SECONDS = 1.1
 
 # Nur diese beiden gelten als "noch nicht abgearbeitet" (CLAUDE.md: "Der
 # Retry-Endpunkt filtert immer auf process_after <= now()" - für BEIDE

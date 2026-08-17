@@ -49,6 +49,17 @@ def test_regel2_ausserhalb_deutschlands_faellt_ohne_bundesland_auf_land_zurueck(
 def test_regel3_nicht_gefunden():
     result = ampel(**_base(geocode_status="nicht_gefunden"))
     assert result.farbe == "rot"
+    # Kein unterstellter Tippfehler mehr (Marco, 2026-08-18, nach dem
+    # OSM-Fund in docs/FUNDE.md: die Schreibweise war bei Groß Grönau
+    # korrekt, nur die Straße fehlte im Kartendienst).
+    assert result.grund == "Adresse im Kartendienst nicht gefunden"
+    assert "Schreibweise" not in result.grund
+
+
+def test_nur_ort_ist_gelb_und_benennt_die_kartenluecke():
+    result = ampel(**_base(geocode_status="nur_ort"))
+    assert result.farbe == "gelb"
+    assert result.grund == "Ort bestätigt, Straße nicht in der Karte gefunden"
 
 
 def test_regel4_fehlgeschlagen_ist_grau_nicht_gelb():

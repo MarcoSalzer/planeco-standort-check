@@ -12,7 +12,8 @@ Liste und Detailansicht lesen nur noch diese Spalten.
 Drei Abweichungen von der wörtlichen Regelformulierung in §B, mit Marco
 abgestimmt (2026-08-16/17):
 
-- Regeln 9/10 prüfen `phone_raw` statt `phone_e164` auf "kein Telefon
+- Regeln 10/11 (Nummerierung nach Konzept §B seit dem 'nur_ort'-Zusatz,
+  2026-08-18) prüfen `phone_raw` statt `phone_e164` auf "kein Telefon
   angegeben". `normalize_phone` liefert `phone_e164=None` bereits immer
   dann, wenn `phone_valid=False` ist - auch wenn gar nichts eingegeben
   wurde. "phone_e164 IS NULL" kann "nichts eingetragen" also nicht von
@@ -25,6 +26,10 @@ abgestimmt (2026-08-16/17):
   docs/FUNDE.md: genau diese Lücke ließ die komplette Lead-Liste mit einem
   ValueError abstürzen, sobald ein einziger Lead diesen Status trug. Beide
   jetzt nachgezogen, Tabelle und Code stimmen wieder überein.
+- `geocode_status='nur_ort'` (2026-08-18, nach dem OSM-Fund in docs/FUNDE.md
+  zur Straße "Am Mühlenteich" in Groß Grönau) neu ergänzt: Migration 0011,
+  Rückfall-Logik in app/geocoding.py::geocode(). 'nicht_gefunden'-Text
+  gleichzeitig präzisiert (kein unterstellter Tippfehler mehr).
 """
 from dataclasses import dataclass
 
@@ -59,7 +64,23 @@ def ampel(
         return AmpelResult("rot", f"Außerhalb Deutschlands: {ort}")
 
     if geocode_status == "nicht_gefunden":
-        return AmpelResult("rot", "Adresse nicht auffindbar — Schreibweise prüfen")
+        # Marco, 2026-08-18, nach der OSM-Untersuchung in docs/FUNDE.md:
+        # "Schreibweise prüfen" unterstellt einen Tippfehler des
+        # Interessenten - bei einer echten Datenlücke im Kartendienst
+        # (wie bei "Am Mühlenteich 7, Groß Grönau") war die Schreibweise
+        # korrekt, nur OSM kennt die Straße nicht. Text jetzt neutral,
+        # ohne diese Unterstellung.
+        return AmpelResult("rot", "Adresse im Kartendienst nicht gefunden")
+
+    if geocode_status == "nur_ort":
+        # Konzept-Erweiterung (Marco, 2026-08-18): Rückfall-Ergebnis von
+        # app/geocoding.py, wenn die strukturierte Abfrage MIT Straße
+        # nichts fand, aber PLZ+Ort allein eindeutig auflösbar waren -
+        # Bundesland/Gemeinde/Koordinaten stehen dann auf Ortsebene, nur
+        # die Straße selbst ist im Kartendienst nicht erfasst. Gelb statt
+        # Rot: Sales weiß, woran es liegt (Kartendatenlücke, keine
+        # Falscheingabe), und hat trotzdem ein Bundesland zum Einordnen.
+        return AmpelResult("gelb", "Ort bestätigt, Straße nicht in der Karte gefunden")
 
     if geocode_status == "fehlgeschlagen":
         return AmpelResult("grau", "Geocoding ausstehend (Dienst nicht erreichbar)")

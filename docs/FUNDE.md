@@ -236,3 +236,84 @@ Behoben durch Vereinfachung statt Reparatur: Die Tönung ersatzlos entfernt,
 die bereits vorhandene `row-inaktiv`-Dämpfung (Duplikat/Ersetzt/Spam/
 Ausland gedämpft, alles andere normal) übernimmt die Funktion allein - eine
 Regel weniger im Kopf, nicht mehr.
+
+## Eine der fünf Beispieladressen ist in OpenStreetMap auf Straßenebene nicht erfasst (`app/geocoding.py`, `app/core/ampel.py`)
+
+Marco meldete zwei Beobachtungen gleichzeitig: "Am Mühlenteich 7, 23627
+Groß Grönau" (eine der fünf Beispieladressen aus der Aufgabenstellung)
+landete auf `geocode_status='nicht_gefunden'`, und bei "mehreren"
+Hamburger Adressen fehlte das Bundesland - letzteres klang nach einem
+Rückfall des erst kürzlich gebauten Stadtstaaten-Fallbacks (s. den
+Fund oben zu `_extract_geo_state()`). Bevor irgendetwas geändert wurde,
+wurde beides anhand der rohen Nominatim-Antworten untersucht, nicht anhand
+einer Vermutung.
+
+**Hamburg: falscher Alarm, kein Rückfall-Defekt.** Live gegen die echte
+API getestet: "Osterstraße 88, 22765 Hamburg" und "Alsterufer 1, 20354
+Hamburg" lösen beide korrekt zu `geo_state='Hamburg'` auf, über exakt den
+ISO-3166-2-Rückfall (`"ISO3166-2-lvl4": "DE-HH"`), der für diesen Fall
+gebaut wurde. Zusätzlich über die gesamte Datenbank geprüft: kein
+einziger Lead hatte `geocode_status='ok'` mit leerem `geo_state` - der
+Rückfall griff also überall dort, wo er greifen sollte. Der konkrete Lead,
+den Marco vermutlich gesehen hatte (Alsterufer 1), stand auf
+`geocode_status='simuliert'` (verarbeitet unter `DRY_RUN_GEOCODE=true`) -
+dort wurde nie wirklich bei Nominatim angefragt, ein fehlendes Bundesland
+ist in diesem Zustand das erwartete, dokumentierte Verhalten (Konzept §B
+Zeile 7), kein Fehler. Verwechslungsgefahr: eine Zeile, die "noch nichts
+weiß" (grau, Testmodus), sieht auf den ersten Blick ähnlich unvollständig
+aus wie eine Zeile, die "etwas falsch ermittelt hat" (was hier gar nicht
+vorlag).
+
+**Groß Grönau: echter, reproduzierbarer Befund.** Live nachgestellt mit
+exakt der strukturierten Abfrage der Anwendung
+(`street="Am Mühlenteich 7", postalcode="23627", city="Groß Grönau",
+countrycodes=de`): null Treffer, heute, mit dem bereits reparierten
+Code - keine veraltete Momentaufnahme. Aufgeschlüsselt durch gezielte
+Variation der Parameter (nicht durch Raten):
+- Nur `city="Groß Grönau"` + `postalcode="23627"` (ohne Straße) → 1
+  Treffer, sauber als Dorf in Schleswig-Holstein aufgelöst. Der Ort selbst
+  ist in Nominatims Daten also einwandfrei erfasst.
+- Straße dazu (`street="Am Mühlenteich"`) → 0 Treffer, auch als
+  vollständiger Freitext (`q="Am Mühlenteich 7, 23627 Groß Grönau"`).
+- Bundesweite Freitextsuche nach "Am Mühlenteich" allein → 10 Treffer in
+  Munster, Inden, Aachen, Trier, Rostock, Koblenz, Bochum und weiteren
+  Orten - aber keiner in Groß Grönau.
+
+Die Straße existiert also als Name in mehreren deutschen Orten, ist aber
+für Groß Grönau selbst nicht in OpenStreetMap kartiert - eine echte
+Datenlücke der Kartenquelle, kein Tippfehler des Interessenten und kein
+Fehler in der strukturierten Abfrage (die Vermutung "Ortsnamen mit
+Leerzeichen könnten die strukturierte Abfrage verwirren" ließ sich damit
+ebenfalls widerlegen: "Groß Grönau" wird über den `city`-Parameter
+anstandslos gefunden, das Leerzeichen ist nicht die Ursache).
+
+**Konsequenz für die Ampel, nicht nur eine Randnotiz:** Der bisherige Text
+bei `nicht_gefunden` ("Adresse nicht auffindbar — Schreibweise prüfen")
+unterstellt einen Fehler des Interessenten - genau das widerlegt dieser
+Fall. Ein Sales-Mitarbeiter, der diesen Text liest, würde vermutlich
+versuchen, die Adresse nachzutippen oder anzurufen "ob die PLZ stimmt",
+obwohl an der Eingabe nichts falsch war.
+
+**Behoben durch einen zweiten Versuch statt durch Ausblenden.** Liefert
+die strukturierte Abfrage MIT Straße null Treffer, unternimmt
+`app/geocoding.py::geocode()` jetzt automatisch einen zweiten,
+strukturierten Versuch NUR mit PLZ+Ort (1,1 s Pause dazwischen, dieselbe
+Ratenbegrenzung wie zwischen zwei Leads im Batch - gilt pro Anfrage an
+Nominatim, nicht nur pro Lead). Gelingt der eindeutig, bekommt der Lead
+`geocode_status='nur_ort'` (Migration 0011) mit Bundesland, Gemeinde und
+Koordinaten auf Ortsebene - beide Rohantworten (der leere Straßen-Versuch
+UND das Ortsebene-Ergebnis) bleiben vollständig in `geocode_raw` erhalten,
+nichts wird verworfen. Ampel dafür gelb statt rot: "Ort bestätigt, Straße
+nicht in der Karte gefunden" (Konzept §B Zeile 9) - Sales sieht sofort,
+woran es liegt, und hat trotzdem ein Bundesland zum Einordnen, statt vor
+einem roten Fehler ohne Information zu stehen. Ist auch die Ortsebene
+mehrdeutig oder ohne Treffer, bleibt der ursprüngliche `nicht_gefunden`-
+Status unverändert stehen - ein unsicherer Rückfall wird nicht als
+Ergebnis ausgegeben. Der bisherige `nicht_gefunden`-Text gleichzeitig
+präzisiert: "Adresse im Kartendienst nicht gefunden", ohne die
+Tippfehler-Unterstellung.
+
+End-to-end gegen die echte Datenbank verifiziert (Insert + `geocode()` +
+`apply_traffic_light()` in einer zurückgerollten Transaktion): Groß
+Grönau ergibt `geocode_status='nur_ort'`, `geo_state='Schleswig-Holstein'`,
+Ampel gelb mit dem neuen Text - keine Spuren in der Datenbank hinterlassen.
