@@ -62,6 +62,27 @@ _INTRO_TEXT_BY_CASE = {
     ),
 }
 
+# Auslandshinweis-Mail (Konzept §A): zweite, separate Mail bei
+# in_service_area=false. Zwei Varianten je nachdem, ob expansion_opt_in
+# beim Absenden schon gesetzt war (Marco, 2026-08-18) - wer das Formular-
+# Häkchen "Bitte informieren Sie mich über neue Regionen" bereits gesetzt
+# hat, hat die Region-Info bereits angefordert; der Text bestätigt das,
+# statt identisch noch einmal danach zu fragen. Das Partner-Vermittlungs-
+# Angebot bleibt in beiden Fällen eine Antwort-Aufforderung, nie
+# automatisch (Konzept §A: "keine automatische Weitergabe an Partner").
+_AUSLAND_ANGEBOT_TEXT_STANDARD = (
+    "Sobald der Standort-Check in Ihrer Region verfügbar ist, können wir Sie "
+    "informieren. Und wenn Sie möchten, vermitteln wir Sie an einen Partner vor "
+    "Ort. Antworten Sie in beiden Fällen einfach auf diese Mail, dann melden "
+    "wir uns bei Ihnen. Ansonsten müssen Sie nichts weiter tun."
+)
+_AUSLAND_ANGEBOT_TEXT_OPT_IN = (
+    "Wir melden uns bei Ihnen, sobald der Standort-Check in Ihrer Region "
+    "verfügbar ist. Und wenn Sie möchten, vermitteln wir Sie an einen Partner "
+    "vor Ort — antworten Sie dafür einfach auf diese Mail, dann melden wir uns "
+    "bei Ihnen. Ansonsten müssen Sie nichts weiter tun."
+)
+
 
 def send_confirmation_email(
     conn: psycopg.Connection, lead_id: str, data: NewLeadData, base_url: str, case: DedupCase
@@ -122,6 +143,74 @@ def send_confirmation_email(
     return "gesendet"
 
 
+def send_auslandshinweis_email(conn: psycopg.Connection, lead_id: str, data: NewLeadData) -> str:
+    """Zweite, separate Mail bei in_service_area=false (Konzept §A) - läuft
+    ausschließlich über den Retry-Pfad (app/retry.py löst sie aus, nachdem
+    das Geocoding-Ergebnis den Lead als 'ausland' erkannt hat), nie beim
+    Submit selbst (dort ist das Geocoding-Ergebnis noch nicht bekannt).
+    Teilt sich das Tageskontingent mit der Bestätigungsmail (dasselbe
+    Brevo-Konto/dieselbe Freigrenze), deshalb dieselbe _reserve_daily_quota().
+    Gibt den resultierenden ausland_hinweis_status zurück."""
+    if data.is_spam:
+        # Wie bei send_confirmation_email (Konzept §E/§J): ein Spam-Fall
+        # bekommt keine zweite Mail. 'nicht_noetig' ist hier zugleich der
+        # Default-Wert der Spalte - passt semantisch ("kein Versand nötig").
+        _update_ausland_status(conn, lead_id, status="nicht_noetig")
+        return "nicht_noetig"
+
+    if not _reserve_daily_quota(conn):
+        logger.warning(
+            "Tageslimit für Bestätigungsmails erreicht (MAX_EMAILS_PER_DAY=%s), "
+            "Auslandshinweis für Lead %s bleibt offen", MAX_EMAILS_PER_DAY, lead_id,
+        )
+        _insert_event(
+            conn, lead_id, "mail_fehlgeschlagen",
+            {"grund": "tageslimit_erreicht", "max_emails_per_day": MAX_EMAILS_PER_DAY, "typ": "auslandshinweis"},
+        )
+        return "offen"
+
+    subject, html = _render_auslandshinweis_email(data)
+
+    if DRY_RUN_EMAIL:
+        dry_run_logger.info(
+            "DRY_RUN_EMAIL aktiv - kein echter Versand (Auslandshinweis).\nAn: %s\nBetreff: %s\n\n%s",
+            data.email, subject, html,
+        )
+        _update_ausland_status(conn, lead_id, status="simuliert")
+        _insert_event(conn, lead_id, "mail_gesendet", {"dry_run": True, "empfaenger": data.email, "typ": "auslandshinweis"})
+        return "simuliert"
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            timeout=BREVO_TIMEOUT_SECONDS,
+            headers={
+                "api-key": os.environ["BREVO_API_KEY"],
+                "content-type": "application/json",
+                "accept": "application/json",
+            },
+            json={
+                "sender": {
+                    "email": os.environ["BREVO_SENDER_EMAIL"],
+                    "name": os.environ.get("BREVO_SENDER_NAME") or "Standort-Check",
+                },
+                "to": [{"email": data.email}],
+                "subject": subject,
+                "htmlContent": html,
+            },
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        logger.warning("Auslandshinweis-Mail fehlgeschlagen für Lead %s: %s", lead_id, exc)
+        _update_ausland_status(conn, lead_id, status="fehlgeschlagen")
+        _insert_event(conn, lead_id, "mail_fehlgeschlagen", {"fehler": str(exc), "typ": "auslandshinweis"})
+        return "fehlgeschlagen"
+
+    _update_ausland_status(conn, lead_id, status="gesendet")
+    _insert_event(conn, lead_id, "mail_gesendet", {"empfaenger": data.email, "typ": "auslandshinweis"})
+    return "gesendet"
+
+
 def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCase) -> tuple[str, str]:
     edit_token = generate_edit_token(lead_id, os.environ["EDIT_TOKEN_SECRET"])
     edit_url = f"{base_url.rstrip('/')}/?k={edit_token}"
@@ -167,6 +256,22 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCas
     return "Ihre Anfrage beim Standort-Check", html
 
 
+def _render_auslandshinweis_email(data: NewLeadData) -> tuple[str, str]:
+    anrede = f"Hallo {data.name}," if data.name else "Hallo,"
+    angebot_text = _AUSLAND_ANGEBOT_TEXT_OPT_IN if data.expansion_opt_in else _AUSLAND_ANGEBOT_TEXT_STANDARD
+
+    template = _env.get_template("email_auslandshinweis.html")
+    html = template.render(
+        anrede=anrede,
+        angebot_text=angebot_text,
+        kontakt_email=os.environ.get("KONTAKT_EMAIL") or "",
+        kontakt_telefon=os.environ.get("KONTAKT_TELEFON") or "",
+    )
+    # Eigener Betreff (nicht identisch zur Bestätigungsmail), damit die
+    # beiden Mails im Posteingang des Interessenten unterscheidbar sind.
+    return "Ihre Anfrage beim Standort-Check — Adresse außerhalb Deutschlands", html
+
+
 def _reserve_daily_quota(conn: psycopg.Connection) -> bool:
     window_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     row = conn.execute(
@@ -203,4 +308,18 @@ def _update_email_status(
         WHERE id = %(lead_id)s
         """,
         {"status": status, "sent_at": sent_at, "error": error, "lead_id": lead_id},
+    )
+
+
+def _update_ausland_status(conn: psycopg.Connection, lead_id: str, *, status: str) -> None:
+    # Anders als email_status hat ausland_hinweis_status keine eigenen
+    # _attempts/_last_error/_sent_at-Begleitspalten (Konzept §F definiert
+    # nur den einen Statuswert) - der Verlauf (wann, mit welchem Fehler)
+    # steht stattdessen vollständig in lead_events (mail_gesendet/
+    # mail_fehlgeschlagen mit "typ":"auslandshinweis"), CLAUDE.md Regel 3
+    # ist damit erfüllt, ohne das Schema über die Konzept-Vorgabe hinaus
+    # zu erweitern.
+    conn.execute(
+        "UPDATE leads SET ausland_hinweis_status = %(status)s, updated_at = now() WHERE id = %(lead_id)s",
+        {"status": status, "lead_id": lead_id},
     )

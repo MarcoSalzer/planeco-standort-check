@@ -29,7 +29,7 @@ from app.core.dedup import DedupCase
 from app.core.geocoding import GeocodeResult
 from app.db import get_connection, insert_event
 from app.geocoding import geocode
-from app.mail import send_confirmation_email
+from app.mail import send_auslandshinweis_email, send_confirmation_email
 from app.submission import NewLeadData, row_to_new_lead_data
 from app.traffic_light import apply_traffic_light
 
@@ -60,6 +60,7 @@ def run_retry(*, base_url: str) -> dict:
     return {
         "geocoding": _retry_geocoding(),
         "mail": _retry_mail(base_url=base_url),
+        "auslandshinweis": _retry_auslandshinweis(),
     }
 
 
@@ -227,7 +228,45 @@ def _apply_geocode_result(conn: psycopg.Connection, lead_id: str, result: Geocod
         conn, lead_id, "geocodiert",
         {"status": result.status, "candidate_count": result.candidate_count, "ort": result.geo_municipality},
     )
+    if result.in_service_area is False:
+        _flag_as_ausland(conn, lead_id)
     apply_traffic_light(conn, lead_id)  # Block c: nach jeder geocode_status-Änderung
+
+
+def _flag_as_ausland(conn: psycopg.Connection, lead_id: str) -> None:
+    """Konzept §A: Adresse eindeutig außerhalb Deutschlands -> eigener
+    Status 'ausland' (eigener Dashboard-Filter, aber nicht verloren) +
+    ausland_hinweis_status startet bei 'offen', damit _retry_auslandshinweis()
+    unten die zweite Mail aufgreift.
+
+    Nur beim ERSTEN Übergang etwas ändern: Block d erlaubt, das Geocoding
+    eines einzelnen Leads jederzeit manuell zu wiederholen, unabhängig vom
+    aktuellen Status - kommt dabei für einen bereits als 'ausland' erkannten
+    Lead wieder in_service_area=false heraus, darf das keine zweite Mail
+    und kein zweites status_geaendert-Event auslösen. status_vorher wird
+    dafür vorab gelesen (kein RETURNING-Trick, weil zwei unabhängig
+    voneinander bedingte Spalten aktualisiert werden)."""
+    row = conn.execute(
+        "SELECT status, ausland_hinweis_status FROM leads WHERE id = %(id)s", {"id": lead_id}
+    ).fetchone()
+    status_vorher, ausland_status_vorher = row[0], row[1]
+
+    updates: dict = {}
+    if status_vorher != "ausland":
+        updates["status"] = "ausland"
+    if ausland_status_vorher == "nicht_noetig":
+        updates["ausland_hinweis_status"] = "offen"
+
+    if not updates:
+        return
+
+    set_clauses = ", ".join(f"{column} = %({column})s" for column in updates)
+    conn.execute(
+        f"UPDATE leads SET {set_clauses}, updated_at = now() WHERE id = %(lead_id)s",
+        {**updates, "lead_id": lead_id},
+    )
+    if "status" in updates:
+        insert_event(conn, lead_id, "status_geaendert", {"von": status_vorher, "nach": "ausland", "grund": "geocoding"})
 
 
 def _mark_geocode_failed(conn: psycopg.Connection, lead_id: str, *, error: str) -> None:
@@ -300,4 +339,71 @@ def _process_one_mail(lead: dict, *, base_url: str) -> str:
             return send_confirmation_email(conn, lead_id, data, base_url, DedupCase.NEU)
     except Exception:
         logger.exception("Mail-Retry fehlgeschlagen für Lead %s", lead_id)
+        return "fehler_unerwartet"
+
+
+# --- Auslandshinweis (Konzept §A) ------------------------------------------
+# Läuft "über denselben Retry-Pfad" wie die Bestätigungsmail (§A) - eigener
+# Zweig statt in _retry_mail() mitzulaufen, weil beide Mails unabhängig
+# voneinander scheitern/erneut versucht werden können (eigene Statusspalte
+# ausland_hinweis_status statt email_status) und eine gemeinsame Funktion
+# beide Fälle stärker verzahnt hätte, als der Konzept-Text nahelegt.
+
+_AUSLANDSHINWEIS_RETRY_STATUSES = ["offen", "fehlgeschlagen"]
+# Kein eigenes Env wie bei _MAIL_RETRY_BATCH_SIZE nötig - Auslandsfälle sind
+# in der Praxis selten (Konzept: bundesweites Angebot, Auslandsadressen sind
+# der Ausnahmefall), dieselbe kleine, feste Obergrenze reicht.
+_AUSLANDSHINWEIS_RETRY_BATCH_SIZE = 10
+
+
+def _retry_auslandshinweis() -> dict:
+    with get_connection() as conn:
+        candidates = _fetch_auslandshinweis_candidates(conn, limit=_AUSLANDSHINWEIS_RETRY_BATCH_SIZE)
+
+    nach_status: dict[str, int] = {}
+    for lead in candidates:
+        status = _process_one_auslandshinweis(lead)
+        nach_status[status] = nach_status.get(status, 0) + 1
+
+    with get_connection() as conn:
+        verbleibend = _count_auslandshinweis_candidates(conn)
+
+    return {"verarbeitet": len(candidates), "nach_status": nach_status, "verbleibend": verbleibend}
+
+
+def _fetch_auslandshinweis_candidates(conn: psycopg.Connection, *, limit: int) -> list[dict]:
+    columns = ", ".join(f.name for f in dataclasses.fields(NewLeadData))
+    # columns kommt ausschließlich aus den fest im Code stehenden
+    # NewLeadData-Feldnamen (wie _fetch_mail_candidates oben) - sicher trotz
+    # f-String-Interpolation.
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"""
+            SELECT id, {columns}
+            FROM leads
+            WHERE ausland_hinweis_status = ANY(%(statuses)s) AND process_after <= now()
+            ORDER BY process_after ASC
+            LIMIT %(limit)s
+            """,
+            {"statuses": _AUSLANDSHINWEIS_RETRY_STATUSES, "limit": limit},
+        )
+        return cur.fetchall()
+
+
+def _count_auslandshinweis_candidates(conn: psycopg.Connection) -> int:
+    row = conn.execute(
+        "SELECT count(*) FROM leads WHERE ausland_hinweis_status = ANY(%(statuses)s) AND process_after <= now()",
+        {"statuses": _AUSLANDSHINWEIS_RETRY_STATUSES},
+    ).fetchone()
+    return row[0]
+
+
+def _process_one_auslandshinweis(lead: dict) -> str:
+    lead_id = str(lead["id"])
+    data = row_to_new_lead_data(lead)
+    try:
+        with get_connection() as conn:
+            return send_auslandshinweis_email(conn, lead_id, data)
+    except Exception:
+        logger.exception("Auslandshinweis-Retry fehlgeschlagen für Lead %s", lead_id)
         return "fehler_unerwartet"

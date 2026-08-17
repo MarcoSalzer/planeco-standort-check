@@ -56,6 +56,7 @@ class NewLeadData:
     is_spam: bool
     spam_reason: str | None
     privacy_accepted_at: datetime
+    expansion_opt_in: bool
 
 
 @dataclass(frozen=True)
@@ -195,7 +196,8 @@ def resolve_current_lead(conn: psycopg.Connection, lead_id: str) -> dict | None:
             cur.execute(
                 """
                 SELECT id, street, postal_code, city, email, phone_raw, name_raw,
-                       is_owner, contact_time_preference, message, heard_about, superseded_by
+                       is_owner, contact_time_preference, message, heard_about,
+                       expansion_opt_in, superseded_by
                 FROM leads WHERE id = %(id)s
                 """,
                 {"id": current_id},
@@ -354,7 +356,7 @@ def _insert_lead(
             gclid, fbclid, referrer, landing_page,
             channel, channel_source, content_hash, duplicate_of,
             status, assigned_to, contacted_at, lead_nummer,
-            is_spam, spam_reason, privacy_accepted_at, process_after
+            is_spam, spam_reason, privacy_accepted_at, process_after, expansion_opt_in
         ) VALUES (
             %(submission_token)s, %(name)s, %(name_raw)s, %(name_normalized)s,
             %(email)s, %(email_normalized)s, %(phone_raw)s, %(phone_e164)s, %(phone_valid)s,
@@ -364,7 +366,7 @@ def _insert_lead(
             %(gclid)s, %(fbclid)s, %(referrer)s, %(landing_page)s,
             %(channel)s, %(channel_source)s, %(content_hash)s, %(duplicate_of)s,
             %(status)s, %(assigned_to)s, %(contacted_at)s, %(lead_nummer)s,
-            %(is_spam)s, %(spam_reason)s, %(privacy_accepted_at)s, %(process_after)s
+            %(is_spam)s, %(spam_reason)s, %(privacy_accepted_at)s, %(process_after)s, %(expansion_opt_in)s
         )
         RETURNING id
         """,

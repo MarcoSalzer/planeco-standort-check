@@ -296,6 +296,13 @@
 
       <div class="field">
         <label class="checkbox-field">
+          <input type="checkbox" id="expansion_opt_in" name="expansion_opt_in" {% if values.expansion_opt_in %}checked{% endif %}>
+          <span>Bitte informieren Sie mich über neue Regionen.</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label class="checkbox-field">
           <input type="checkbox" id="privacy_accepted" name="privacy_accepted" required {% if values.privacy_accepted %}checked{% endif %}>
           <span>Ich habe die <a href="/datenschutz" target="_blank" rel="noopener noreferrer">Datenschutzerklärung</a> gelesen und akzeptiere sie. *</span>
         </label>
