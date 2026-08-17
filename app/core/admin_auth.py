@@ -32,3 +32,15 @@ def verify_session_token(token: str, secret: str, max_age: int = SESSION_MAX_AGE
         return URLSafeTimedSerializer(secret, salt=_SALT).loads(token, max_age=max_age)
     except (BadSignature, SignatureExpired):
         return None
+
+
+def verify_retry_secret(provided: str | None, *, expected: str | None) -> bool:
+    """Für POST /admin/retry (Konzept §1: Trigger Dashboard-Button UND
+    GitHub-Actions-Cron) - Letzterer hat keine Session, deshalb ein eigener
+    Header (X-Retry-Secret) statt des Cookies. hmac.compare_digest wie bei
+    verify_credentials, damit die Antwortzeit kein Secret-Präfix verrät.
+    Fehlt provided ODER expected, ist das Ergebnis immer False statt eines
+    TypeError aus compare_digest (z.B. RETRY_SECRET nicht konfiguriert)."""
+    if not provided or not expected:
+        return False
+    return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))

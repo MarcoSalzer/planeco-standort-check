@@ -65,17 +65,20 @@ _INTRO_TEXT_BY_CASE = {
 
 def send_confirmation_email(
     conn: psycopg.Connection, lead_id: str, data: NewLeadData, base_url: str, case: DedupCase
-) -> None:
+) -> str:
+    """Gibt den resultierenden email_status zurück (offen/uebersprungen/
+    simuliert/gesendet/fehlgeschlagen) - für Aufrufer, die den Ausgang ohne
+    erneute Abfrage zusammenfassen müssen (app/retry.py)."""
     if data.is_spam:
         # Kein Versandversuch, deshalb kein email_attempts-Zähler - reines
         # Statusfeld, das erklärt, warum nie gesendet wurde (Konzept §E).
         _update_email_status(conn, lead_id, status="uebersprungen", increment_attempts=False)
-        return
+        return "uebersprungen"
 
     if not _reserve_daily_quota(conn):
         logger.warning("Tageslimit für Bestätigungsmails erreicht (MAX_EMAILS_PER_DAY=%s), Lead %s bleibt offen", MAX_EMAILS_PER_DAY, lead_id)
         _insert_event(conn, lead_id, "mail_fehlgeschlagen", {"grund": "tageslimit_erreicht", "max_emails_per_day": MAX_EMAILS_PER_DAY})
-        return  # email_status bleibt 'offen', Retry holt es später nach
+        return "offen"  # email_status bleibt 'offen', Retry holt es später nach
 
     subject, html = _render_email(data, lead_id, base_url, case)
 
@@ -86,7 +89,7 @@ def send_confirmation_email(
         )
         _update_email_status(conn, lead_id, status="simuliert")
         _insert_event(conn, lead_id, "mail_gesendet", {"dry_run": True, "empfaenger": data.email})
-        return
+        return "simuliert"
 
     try:
         response = httpx.post(
@@ -112,10 +115,11 @@ def send_confirmation_email(
         logger.warning("Bestätigungsmail fehlgeschlagen für Lead %s: %s", lead_id, exc)
         _update_email_status(conn, lead_id, status="fehlgeschlagen", error=str(exc))
         _insert_event(conn, lead_id, "mail_fehlgeschlagen", {"fehler": str(exc)})
-        return
+        return "fehlgeschlagen"
 
     _update_email_status(conn, lead_id, status="gesendet", sent_at=datetime.now(timezone.utc))
     _insert_event(conn, lead_id, "mail_gesendet", {"empfaenger": data.email})
+    return "gesendet"
 
 
 def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCase) -> tuple[str, str]:

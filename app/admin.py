@@ -5,7 +5,6 @@ Session per signiertem Cookie (itsdangerous, SESSION_SECRET - eigenes
 Secret, getrennt von EDIT_TOKEN_SECRET, s. app/core/admin_auth.py).
 """
 import csv
-import dataclasses
 import io
 import logging
 import os
@@ -23,6 +22,7 @@ from app.core.admin_auth import (
     SESSION_MAX_AGE_SECONDS,
     generate_session_token,
     verify_credentials,
+    verify_retry_secret,
     verify_session_token,
 )
 from app.core.ampel import ampel as compute_ampel
@@ -39,7 +39,8 @@ from app.core.display import (
 from app.core.spam import SPAM_REASON_LABELS
 from app.db import get_connection, insert_event
 from app.mail import send_confirmation_email
-from app.submission import NewLeadData
+from app.retry import run_retry
+from app.submission import NewLeadData, row_to_new_lead_data
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
@@ -869,9 +870,10 @@ def _build_detail_context(
 
 
 # --- Aktionen (Konzept §6) -------------------------------------------------
-# "Geocoding erneut" / globaler Retry-Button bewusst nicht gebaut: Phase 4
-# (Geocoding) existiert noch nicht, es gäbe nichts, das ein Retry-Button
-# tatsächlich retryen könnte (s. docs/TODO.md, offene Punkte).
+# Dashboard-Buttons "Geocoding erneut" (einzeln) / globaler Retry-Button
+# bewusst noch nicht gebaut - das ist Phase 4 Block (d). POST /admin/retry
+# (unten, Block b) existiert bereits als Backend-Endpunkt und ist schon
+# heute per curl/GitHub-Actions-Cron nutzbar.
 
 
 @router.post("/leads/{lead_id}/bearbeitung")
@@ -948,7 +950,7 @@ def resend_lead_mail(request: Request, lead_id: str):
         row = _fetch_lead(conn, lead_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
-        data = _row_to_new_lead_data(row)
+        data = row_to_new_lead_data(row)
 
     aktion = "mail_gesendet"
     try:
@@ -966,11 +968,6 @@ def resend_lead_mail(request: Request, lead_id: str):
     return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion={aktion}", status_code=303)
 
 
-def _row_to_new_lead_data(row: dict) -> NewLeadData:
-    field_names = {f.name for f in dataclasses.fields(NewLeadData)}
-    return NewLeadData(**{name: row[name] for name in field_names})
-
-
 def _update_lead(conn: psycopg.Connection, lead_id: str, updates: dict) -> None:
     # Spaltennamen in `updates` kommen ausschließlich aus fest im Code
     # stehenden Strings oben (status/is_spam/spam_reason/contacted_at/
@@ -982,6 +979,30 @@ def _update_lead(conn: psycopg.Connection, lead_id: str, updates: dict) -> None:
         f"UPDATE leads SET {set_clauses}, updated_at = now() WHERE id = %(lead_id)s",
         {**updates, "lead_id": lead_id},
     )
+
+
+# --- Retry (Konzept §1/§G, Phase 4 Block b) --------------------------------
+# Zwei mögliche Aufrufer (Konzept §1): eingeloggter Admin über den Dashboard-
+# Button (Block d, noch nicht gebaut) ODER der GitHub-Actions-Cron (Block e,
+# noch nicht gebaut) ohne Session - deshalb zwei akzeptierte Nachweise statt
+# nur des Cookies. Antwort ist bewusst JSON statt eines Redirects: welche
+# Darstellung ein künftiger Dashboard-Button daraus macht, ist Block (d)s
+# Entscheidung, nicht diese hier vorwegzunehmen.
+
+
+def _authorized_for_retry(request: Request) -> bool:
+    if _current_admin(request):
+        return True
+    return verify_retry_secret(
+        request.headers.get("X-Retry-Secret"), expected=os.environ.get("RETRY_SECRET")
+    )
+
+
+@router.post("/retry")
+def trigger_retry(request: Request):
+    if not _authorized_for_retry(request):
+        raise HTTPException(status_code=401, detail="Nicht autorisiert.")
+    return run_retry(base_url=str(request.base_url))
 
 
 # --- Auswertung (Konzept §7) -----------------------------------------------

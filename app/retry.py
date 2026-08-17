@@ -1,0 +1,275 @@
+"""Retry-Orchestrierung für POST /admin/retry (Konzept §1/§G, TODO Phase 4
+Block b): arbeitet Leads ab, deren Geocoding oder Bestätigungsmail beim
+Submit offen blieb oder scheiterte.
+
+Trigger laut Konzept §1: Dashboard-Button UND GitHub-Actions-Cron alle
+15 min (app/admin.py prüft Session-Cookie ODER RETRY_SECRET-Header, s.
+app/core/admin_auth.py::verify_retry_secret).
+
+Nicht pur (DB-/HTTP-Zugriff über app/geocoding.py und app/mail.py) - wie
+diese beiden Module bewusst ohne automatisierte Tests (CLAUDE.md Regel 5
+gilt nur für app/core/*), stattdessen live gegen echte Nominatim-/Brevo-
+Aufrufe verifiziert (wie Phase 4 Block a).
+
+Jeder Lead läuft auf einer EIGENEN Connection (wie main.py::submit für
+Mail/Geocoding), damit ein Fehler bei Lead N nicht bereits committete
+Ergebnisse von Lead 1..N-1 zurückrollt.
+"""
+import dataclasses
+import logging
+import time
+from datetime import datetime, timezone
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Json
+
+from app.config import DRY_RUN_GEOCODE, GEOCODE_BATCH_SIZE, MAX_GEOCODE_PER_MINUTE
+from app.core.dedup import DedupCase
+from app.core.geocoding import GeocodeResult
+from app.db import get_connection, insert_event
+from app.geocoding import geocode
+from app.mail import send_confirmation_email
+from app.submission import NewLeadData, row_to_new_lead_data
+
+logger = logging.getLogger(__name__)
+dry_run_logger = logging.getLogger("app.retry.dry_run")
+
+COUNTER_KEY_GEOCODE_PER_MINUTE = "geocode_minute"
+# Nominatim-Nutzungsbedingungen: max. 1 Anfrage/Sekunde. >1.0 als
+# Sicherheitsspanne (Uhr-/Netzwerk-Jitter), s. auch die manuelle
+# Live-Verifikation in Phase 4 Block a (dort 1.2-1.5s verwendet).
+NOMINATIM_MIN_INTERVAL_SECONDS = 1.1
+
+# Nur diese beiden gelten als "noch nicht abgearbeitet" (CLAUDE.md: "Der
+# Retry-Endpunkt filtert immer auf process_after <= now()" - für BEIDE
+# Nebenwirkungen, nicht nur Geocoding, s. auch app/submission.py).
+_GEOCODE_RETRY_STATUSES = ["offen", "fehlgeschlagen"]
+_EMAIL_RETRY_STATUSES = ["offen", "fehlgeschlagen"]
+
+# Kein Ratenlimit wie bei Nominatim (Brevo hat keine 1/s-Regel, MAX_EMAILS_
+# PER_DAY sichert das Tageskontingent bereits pro Aufruf ab), aber dieselbe
+# Portions-Idee wie GEOCODE_BATCH_SIZE: eine feste, kleine Obergrenze
+# reicht, weil fehlgeschlagene Mails in der Praxis selten sind (nur
+# Tageslimit oder ein echter Brevo-Ausfall) - kein eigenes Env nötig.
+_MAIL_RETRY_BATCH_SIZE = 10
+
+
+def run_retry(*, base_url: str) -> dict:
+    return {
+        "geocoding": _retry_geocoding(),
+        "mail": _retry_mail(base_url=base_url),
+    }
+
+
+# --- Geocoding ---------------------------------------------------------
+
+
+def _retry_geocoding() -> dict:
+    with get_connection() as conn:
+        candidates = _fetch_geocode_candidates(conn, limit=GEOCODE_BATCH_SIZE)
+
+    nach_status: dict[str, int] = {}
+    verarbeitet = 0
+    for i, lead in enumerate(candidates):
+        if i > 0:
+            time.sleep(NOMINATIM_MIN_INTERVAL_SECONDS)
+        status = _process_one_geocode(lead)
+        if status is None:
+            # Kontingent (MAX_GEOCODE_PER_MINUTE) erschöpft - nichts
+            # geschrieben, Rest bleibt für den nächsten Lauf liegen statt
+            # weiter gegen ein leeres Kontingent zu laufen.
+            logger.warning(
+                "MAX_GEOCODE_PER_MINUTE erreicht nach %s von %s Kandidaten - Rest folgt beim nächsten Aufruf",
+                verarbeitet, len(candidates),
+            )
+            break
+        nach_status[status] = nach_status.get(status, 0) + 1
+        verarbeitet += 1
+
+    with get_connection() as conn:
+        verbleibend = _count_geocode_candidates(conn)
+
+    return {"verarbeitet": verarbeitet, "nach_status": nach_status, "verbleibend": verbleibend}
+
+
+def _fetch_geocode_candidates(conn: psycopg.Connection, *, limit: int) -> list[dict]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT id, street, postal_code, city
+            FROM leads
+            WHERE geocode_status = ANY(%(statuses)s) AND process_after <= now()
+            ORDER BY process_after ASC
+            LIMIT %(limit)s
+            """,
+            {"statuses": _GEOCODE_RETRY_STATUSES, "limit": limit},
+        )
+        return cur.fetchall()
+
+
+def _count_geocode_candidates(conn: psycopg.Connection) -> int:
+    row = conn.execute(
+        "SELECT count(*) FROM leads WHERE geocode_status = ANY(%(statuses)s) AND process_after <= now()",
+        {"statuses": _GEOCODE_RETRY_STATUSES},
+    ).fetchone()
+    return row[0]
+
+
+def _process_one_geocode(lead: dict) -> str | None:
+    """None: Kontingent erschöpft, nichts geschrieben. Sonst der
+    resultierende geocode_status."""
+    lead_id = str(lead["id"])
+    try:
+        with get_connection() as conn:
+            # Reihenfolge wie app/mail.py (_reserve_daily_quota VOR
+            # DRY_RUN_EMAIL): der Zähler wird auch im Dry-Run konsumiert,
+            # damit ein Dry-Run den vollen Ablauf inkl. Kontingent-Prüfung
+            # testet, nicht nur den Erfolgsfall.
+            if not _reserve_geocode_quota(conn):
+                return None
+            if DRY_RUN_GEOCODE:
+                return _simulate_geocode(conn, lead_id, lead)
+            result = geocode(street=lead["street"], postal_code=lead["postal_code"], city=lead["city"])
+            _apply_geocode_result(conn, lead_id, result)
+            return result.status
+    except Exception:
+        logger.exception("Geocoding-Retry fehlgeschlagen für Lead %s", lead_id)
+        with get_connection() as conn:
+            _mark_geocode_failed(conn, lead_id, error="unerwarteter Fehler beim Retry")
+        return "fehlgeschlagen"
+
+
+def _reserve_geocode_quota(conn: psycopg.Connection) -> bool:
+    window_start = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    row = conn.execute(
+        """
+        INSERT INTO usage_counters (counter_key, window_start, count)
+        VALUES (%(key)s, %(window_start)s, 1)
+        ON CONFLICT (counter_key, window_start)
+        DO UPDATE SET count = usage_counters.count + 1, updated_at = now()
+        RETURNING count
+        """,
+        {"key": COUNTER_KEY_GEOCODE_PER_MINUTE, "window_start": window_start},
+    ).fetchone()
+    return row[0] <= MAX_GEOCODE_PER_MINUTE
+
+
+def _simulate_geocode(conn: psycopg.Connection, lead_id: str, lead: dict) -> str:
+    dry_run_logger.info(
+        "DRY_RUN_GEOCODE aktiv - kein echter Nominatim-Aufruf.\nStraße: %s\nPLZ: %s\nOrt: %s",
+        lead["street"], lead["postal_code"], lead["city"],
+    )
+    conn.execute(
+        """
+        UPDATE leads SET geocode_status = 'simuliert', geocode_attempts = geocode_attempts + 1,
+               updated_at = now()
+        WHERE id = %(id)s
+        """,
+        {"id": lead_id},
+    )
+    insert_event(conn, lead_id, "geocodiert", {"status": "simuliert", "dry_run": True})
+    return "simuliert"
+
+
+def _apply_geocode_result(conn: psycopg.Connection, lead_id: str, result: GeocodeResult) -> None:
+    conn.execute(
+        """
+        UPDATE leads
+        SET geocode_status = %(status)s,
+            geocode_attempts = geocode_attempts + 1,
+            lat = %(lat)s, lon = %(lon)s,
+            geo_municipality = %(geo_municipality)s, geo_state = %(geo_state)s,
+            geo_country = %(geo_country)s, geocode_raw = %(geocode_raw)s,
+            in_service_area = %(in_service_area)s,
+            geo_state_unresolved = %(geo_state_unresolved)s,
+            updated_at = now()
+        WHERE id = %(lead_id)s
+        """,
+        {
+            "status": result.status,
+            "lat": result.lat, "lon": result.lon,
+            "geo_municipality": result.geo_municipality, "geo_state": result.geo_state,
+            "geo_country": result.geo_country,
+            "geocode_raw": Json(result.raw) if result.raw is not None else None,
+            "in_service_area": result.in_service_area,
+            "geo_state_unresolved": result.geo_state_unresolved,
+            "lead_id": lead_id,
+        },
+    )
+    insert_event(
+        conn, lead_id, "geocodiert",
+        {"status": result.status, "candidate_count": result.candidate_count, "ort": result.geo_municipality},
+    )
+
+
+def _mark_geocode_failed(conn: psycopg.Connection, lead_id: str, *, error: str) -> None:
+    conn.execute(
+        """
+        UPDATE leads SET geocode_status = 'fehlgeschlagen', geocode_attempts = geocode_attempts + 1,
+               updated_at = now()
+        WHERE id = %(id)s
+        """,
+        {"id": lead_id},
+    )
+    insert_event(conn, lead_id, "geocodiert", {"status": "fehlgeschlagen", "fehler": error})
+
+
+# --- Mail ----------------------------------------------------------------
+
+
+def _retry_mail(*, base_url: str) -> dict:
+    with get_connection() as conn:
+        candidates = _fetch_mail_candidates(conn, limit=_MAIL_RETRY_BATCH_SIZE)
+
+    nach_status: dict[str, int] = {}
+    for lead in candidates:
+        status = _process_one_mail(lead, base_url=base_url)
+        nach_status[status] = nach_status.get(status, 0) + 1
+
+    with get_connection() as conn:
+        verbleibend = _count_mail_candidates(conn)
+
+    return {"verarbeitet": len(candidates), "nach_status": nach_status, "verbleibend": verbleibend}
+
+
+def _fetch_mail_candidates(conn: psycopg.Connection, *, limit: int) -> list[dict]:
+    columns = ", ".join(f.name for f in dataclasses.fields(NewLeadData))
+    # columns kommt ausschließlich aus den fest im Code stehenden
+    # NewLeadData-Feldnamen, nie aus einer Anfrage - sicher trotz
+    # f-String-Interpolation (dasselbe Muster wie app/admin.py).
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"""
+            SELECT id, {columns}
+            FROM leads
+            WHERE email_status = ANY(%(statuses)s) AND process_after <= now()
+            ORDER BY process_after ASC
+            LIMIT %(limit)s
+            """,
+            {"statuses": _EMAIL_RETRY_STATUSES, "limit": limit},
+        )
+        return cur.fetchall()
+
+
+def _count_mail_candidates(conn: psycopg.Connection) -> int:
+    row = conn.execute(
+        "SELECT count(*) FROM leads WHERE email_status = ANY(%(statuses)s) AND process_after <= now()",
+        {"statuses": _EMAIL_RETRY_STATUSES},
+    ).fetchone()
+    return row[0]
+
+
+def _process_one_mail(lead: dict, *, base_url: str) -> str:
+    lead_id = str(lead["id"])
+    data = row_to_new_lead_data(lead)
+    try:
+        with get_connection() as conn:
+            # DedupCase.NEU wie beim manuellen Resend (app/admin.py) - der
+            # ursprüngliche Fall (NEU/F2/F3/F4) ließe sich nur über einen
+            # zusätzlichen Rückwärts-Lookup rekonstruieren; er beeinflusst
+            # nur die Einleitung der Mail, nicht deren fachlichen Inhalt.
+            return send_confirmation_email(conn, lead_id, data, base_url, DedupCase.NEU)
+    except Exception:
+        logger.exception("Mail-Retry fehlgeschlagen für Lead %s", lead_id)
+        return "fehler_unerwartet"

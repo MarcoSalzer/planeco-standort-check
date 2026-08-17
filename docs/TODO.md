@@ -41,16 +41,20 @@ Dropdown-Filter (Kanal, Bundesland).
    durch Spalten-Header-Filter ersetzen - als Punkt in der Phase-3-
    Checkliste unten vermerkt, nicht gebaut.
 
-**Phase 4, Block (a) ist fertig** (Nominatim-Client, s. Checkliste unten -
-zweigeteilt in `app/core/geocoding.py` + `app/geocoding.py`). Die beim
-ersten Live-Test aufgefallene "mehrdeutig"-Häufung wurde vor Block (b)
-untersucht und behoben (Details im nächsten Absatz), wie von Marco
-verlangt ("halt nach jedem Block an" - Block (a) wurde dafür nochmal
-geöffnet, nicht übersprungen). **Nächster Schritt: Block (b)**
-(Retry-Endpoint), von Marco ausdrücklich freigegeben ("Danach Block (b),
-der Retry-Endpoint"). Ampel-Funktion existiert bereits
-(`app/core/ampel.py`, aus Phase 4 vorgezogen). Auslandspfad +
-Landesbauordnung-Zuordnung kommen laut Marco separat NACH Block (a)-(e).
+**Phase 4, Block (a) UND (b) sind fertig** (Nominatim-Client + Retry-
+Endpoint, s. Checkliste unten). Die beim ersten Live-Test von Block (a)
+aufgefallene "mehrdeutig"-Häufung wurde vor Block (b) untersucht und
+behoben (Details im nächsten Absatz), wie von Marco verlangt ("halt nach
+jedem Block an" - Block (a) wurde dafür nochmal geöffnet, nicht
+übersprungen). Block (b) lief anschließend mit Marcos ausdrücklicher
+Freigabe ("Danach Block (b), der Retry-Endpoint") inkl. einer Abweichung
+von Marcos eigenem Vorschlag bei der Portionsgröße (s. Block-(b)-Eintrag
+unten: `GEOCODE_BATCH_SIZE` statt höherem `maxDuration`). **Nächster
+Schritt: Block (c)** (`traffic_light` beim Schreiben berechnen und
+speichern), noch nicht begonnen - "halt nach jedem Block an" gilt
+weiterhin. Ampel-Funktion existiert bereits (`app/core/ampel.py`, aus
+Phase 4 vorgezogen). Auslandspfad + Landesbauordnung-Zuordnung kommen laut
+Marco separat NACH Block (a)-(e).
 
 **Mehrdeutig-Kriterium korrigiert (17.08., drei Funde, Details in
 docs/FUNDE.md):** Die ursprüngliche Regel ("mehr als ein Nominatim-Treffer
@@ -74,9 +78,11 @@ und ergab `in_service_area=False` für JEDE Adresse, also rote Ampel
 "Außerhalb Deutschlands" für praktisch alles - behoben, "alle" wird jetzt
 als Sentinel erkannt UND jeder Bundesland-Name gegen die echten 16 geprüft
 (ein Tippfehler bricht die Anwendung jetzt beim Start ab, statt still
-einen wirkungslosen Filter zu bilden). Bestehende Leads waren nicht
-betroffen (alle 19 standen noch auf `geocode_status='offen'`, Block (b)
-war der einzige potenzielle Aufrufer und existierte noch nicht). 33 Tests
+einen wirkungslosen Filter zu bilden). Zum Zeitpunkt dieses Funds waren
+bestehende Leads noch nicht betroffen (alle 19 standen noch auf
+`geocode_status='offen'`, Block (b) existierte noch nicht) - der bis dahin
+aufgelaufene Bestand (u.a. aus `scripts/testlauf.py`) wurde erst bei der
+Live-Verifikation von Block (b) tatsächlich geokodiert, s. dort. 33 Tests
 in `tests/core/test_geocoding.py` (vorher 15), alle grün, zusätzlich live
 gegen die echte API neu verifiziert (Berlin/Hamburg/Bremen einzeln
 geprüft, nicht nur Berlin).
@@ -238,9 +244,9 @@ Punkte sind alle noch offen.
 - [x] Tab Auswertung (`GET /admin/auswertung`): GROUP BY **channel** (nicht utm_source, s. §H)/campaign/heard_about/Bundesland als Links statt Dropdown (kein JS), alle 8 Spalten aus §7, "Basis: n" pro Zeile, Quoten unter n=10 grau/kursiv, Kreuztabelle Kanal×Bundesland. Live gegen echte Daten verifiziert (Zahlen von Hand gegengerechnet, exakte Übereinstimmung). Fund beim Bauen behoben: `utm_campaign` wird beim Submit nicht leer→NULL normalisiert (anders als heard_about/phone/name) - ohne `NULLIF(...,'')` in der Query erschienen zwei optisch identische "(keine Angabe)"-Zeilen für NULL und ''. Query-seitig gefixt, Ursache in `main.py` (Submit-Handler) nicht angefasst - dort betrifft es auch utm_source/medium/term/content/gclid/fbclid/referrer/landing_page, nicht nur campaign.
 - [ ] **Später, nach Phase 4 (Marco, 2026-08-16):** die zwei Dropdown-Filter (Kanal, Bundesland) oben durch Filter direkt an den Spaltenüberschriften Ort, Bundesland, Ampel, Kanal, Status und Zugewiesen ersetzen, jeweils befüllt aus den tatsächlich vorhandenen Werten (nicht die feste Optionsliste wie aktuell bei Kanal/Bundesland). Allgemeine Suche über alle Felder bleibt oben erhalten. Grund für "nach Phase 4": Ampel/Bundesland haben vor dem Geocoding kaum unterscheidbare Werte, ein Filter darauf wäre noch nicht sinnvoll testbar.
 
-## Phase 4 — Geocoding (Mo, ~2-3h) — Block (a) fertig, (b)-(e) offen
+## Phase 4 — Geocoding (Mo, ~2-3h) — Block (a)+(b) fertig, (c)-(e) offen
 - [x] **Block (a):** Nominatim-Client, zweigeteilt: `app/core/geocoding.py` (reine Auswertung einer bereits geparsten Antwort, testbar ohne Netzwerk, 33 Tests inkl. Nominatims uneinheitlicher Gemeinde-Schlüssel city/town/village/... und Pilot-Einzugsgebiet) + `app/geocoding.py` (echter Client: structured query street/city/postalcode getrennt, countrycodes=de, limit=5, format=jsonv2, addressdetails=1, User-Agent aus NOMINATIM_USER_AGENT-Env - fehlt der, wird gar nicht erst angefragt statt mit leerem Default, Timeout 3s). Status ok/mehrdeutig/nicht_gefunden (fehlgeschlagen kommt vom Client bei Netzwerk-/HTTP-Fehlern), volle Antwort + Auswahl-Protokoll für geocode_raw, Bundesland/Gemeinde/Koordinaten/in_service_area (+ geo_country als ISO-Code, nicht explizit gefordert aber dieselbe Antwort, günstig für die Ampel-Auslandsregel) abgeleitet. `in_service_area=None` (nicht `False`) wenn gar kein Bundesland ermittelbar war - "wissen wir nicht" ≠ "liegt draußen", dieselbe Unterscheidung wie in app/core/ampel.py. DRY_RUN_GEOCODE bewusst NICHT hier geprüft, sondern für Block (b) vorgesehen (wie MAX_GEOCODE_PER_MINUTE eine Frage des Retry-Laufs, nicht des Clients). **Mehrdeutig-Kriterium 17.08. korrigiert** (Bundesland+Gemeinde-Übereinstimmung statt roher Trefferzahl, `importance`-Tie-Breaker, Auswahl-Protokoll in `geocode_raw.auswahl`), dabei zwei weitere Live-Funde behoben (fehlendes `state`-Feld bei Berlin/Hamburg via ISO-3166-2-Fallback + neues `geo_state_unresolved`-Flag; `SERVICE_AREA_STATES=alle` wurde nicht erkannt und ergab `in_service_area=False` für alles - jetzt Sentinel-Erkennung plus Validierung beim Modul-Import). Alle drei Funde in docs/FUNDE.md. Live gegen die echte Nominatim-API neu verifiziert (Berlin/München jetzt korrekt "ok" statt "mehrdeutig", Lindenweg-3-Testfall weiterhin "mehrdeutig", Hamburg/Bremen einzeln auf das state-Feld geprüft).
-- [ ] **Block (b):** Retry-Endpoint POST /admin/retry (RETRY_SECRET), nur process_after <= now(), MAX_GEOCODE_PER_MINUTE + max. 1 Anfrage/Sekunde seriell, Geocoding UND fehlgeschlagene Mails über denselben Pfad, bei F3-Korrektur Vorgänger auf geocode_status=entfaellt
+- [x] **Block (b):** `POST /admin/retry` (`app/retry.py` + Route in `app/admin.py`), zwei Nachweise akzeptiert (Session-Cookie ODER `X-Retry-Secret`-Header, `verify_retry_secret` in `app/core/admin_auth.py`, `hmac.compare_digest`), Antwort JSON (Darstellung im Dashboard ist Block (d)s Entscheidung). Filtert immer auf `process_after <= now()` (CLAUDE.md), für Geocoding UND Mail auf `status IN ('offen','fehlgeschlagen')` - `mehrdeutig`/`nicht_gefunden` sind abgeschlossene Ergebnisse, kein Retry-Fall. Geocoding: `MAX_GEOCODE_PER_MINUTE` als Ratenbremse (usage_counters, counter_key `geocode_minute`) GETRENNT von `GEOCODE_BATCH_SIZE` (neues Env, Default 5) als Portionsgröße pro Aufruf - Marcos Vorgabe, "kurze wiederholbare Portionen statt eines Laufs, der gegen ein Zeitlimit drückt", 1.1s Pause zwischen Nominatim-Anfragen. Antwort meldet `verarbeitet` UND `verbleibend` (Backlog-Größe) getrennt für Geocoding/Mail - ausdrücklich verlangt, sonst nicht erkennbar ob eine Portion reichte. DRY_RUN_GEOCODE spiegelt DRY_RUN_EMAIL exakt (Kontingent-Zähler/Versuche/Event laufen voll durch, nur der echte Aufruf entfällt) → neuer `geocode_status='simuliert'` (Migration 0007, analog 0002). Neues Feld `geo_state_unresolved` (Migration 0008) wird jetzt tatsächlich persistiert. F3-Korrektur: `_supersede()` in `app/submission.py` setzt Vorgänger auf `geocode_status='entfaellt'` NUR wenn dessen Geocoding noch offen/fehlgeschlagen war (§G-Grenzfall: ein bereits geokodierter Vorgänger bleibt stehen). `send_confirmation_email()` gibt jetzt den resultierenden Status zurück (für die Zusammenfassung, ohne erneute Abfrage); `_row_to_new_lead_data` von `app/admin.py` nach `app/submission.py::row_to_new_lead_data` verschoben (jetzt von admin.py UND retry.py genutzt). **Zusätzlich `PROCESS_DELAY_MINUTES` verdrahtet** (war dokumentiert, aber wirkungslos - Fund, s. docs/FUNDE.md; `_insert_lead` setzt `process_after` jetzt explizit aus dem Env-Wert statt dem SQL-Spaltendefault). Live verifiziert (lokaler Server, `PROCESS_DELAY_MINUTES=0`): Auth (401 ohne/mit falschem Secret), echtes Geocoding inkl. Portionsgrenze und Backlog-Anzeige (9 Kandidaten → 5+4 über zwei Aufrufe), Kontingent-Erschöpfung mitten in der Verarbeitung (Rest bleibt unangetastet liegen), DRY_RUN_GEOCODE inkl. Kontingent-Prüfung, F3 → Vorgänger `entfaellt` UND vom Retry ausgeschlossen, Mail-Retry-Erholung von `tageslimit_erreicht`. Keine automatisierten Tests für `app/retry.py` selbst (wie `app/mail.py`/`app/geocoding.py`/`app/admin.py` - CLAUDE.md Regel 5 gilt nur für app/core/*), aber `verify_retry_secret` (app/core/admin_auth.py) pur und getestet.
 - [ ] **Block (c):** traffic_light/traffic_light_reason beim Schreiben berechnen und speichern statt live beim Lesen (app/core/ampel.py bleibt die reine Funktion, nur der Aufrufer ändert sich)
 - [ ] **Block (d):** Dashboard mit echten Ampel-Werten, Bundesland gefüllt, Kandidaten bei mehrdeutig in der Detailansicht, Google-Maps-Link aus lat/lon, Buttons "Geocoding erneut" (einzeln) + globaler Retry
 - [ ] **Block (e):** GitHub-Actions-Workflow, alle 15 min, ruft /admin/retry mit Secret im Header auf

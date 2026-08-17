@@ -10,11 +10,12 @@ des `with get_connection()`-Blocks, s. app/db.py).
 """
 import dataclasses
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 from psycopg.rows import dict_row
 
+from app.config import PROCESS_DELAY_MINUTES
 from app.core.dedup import DedupCase, ExistingLead, dedup_decision
 from app.core.merge import merge_fields
 from app.core.normalize import normalize_email, normalize_name, normalize_phone
@@ -61,6 +62,16 @@ class SubmissionResult:
     lead_id: str
     case: DedupCase
     final_data: "NewLeadData | None"  # None nur bei F1 - kein neuer Datensatz
+
+
+def row_to_new_lead_data(row: dict) -> NewLeadData:
+    """Rekonstruiert NewLeadData aus einer bereits geladenen leads-Zeile -
+    für jeden Pfad, der eine Bestätigungsmail NACH dem ursprünglichen Submit
+    (erneut) verschickt: manueller Resend (app/admin.py) und Retry
+    fehlgeschlagener Mails (app/retry.py). Funktioniert nur, weil Dataclass-
+    Feldnamen und Spaltennamen identisch sind (s. _insert_lead)."""
+    field_names = {f.name for f in dataclasses.fields(NewLeadData)}
+    return NewLeadData(**{name: row[name] for name in field_names})
 
 
 def persist_submission(
@@ -342,7 +353,7 @@ def _insert_lead(
             gclid, fbclid, referrer, landing_page,
             channel, channel_source, content_hash, duplicate_of,
             status, assigned_to, contacted_at, lead_nummer,
-            is_spam, spam_reason, privacy_accepted_at
+            is_spam, spam_reason, privacy_accepted_at, process_after
         ) VALUES (
             %(submission_token)s, %(name)s, %(name_raw)s, %(name_normalized)s,
             %(email)s, %(email_normalized)s, %(phone_raw)s, %(phone_e164)s, %(phone_valid)s,
@@ -352,7 +363,7 @@ def _insert_lead(
             %(gclid)s, %(fbclid)s, %(referrer)s, %(landing_page)s,
             %(channel)s, %(channel_source)s, %(content_hash)s, %(duplicate_of)s,
             %(status)s, %(assigned_to)s, %(contacted_at)s, %(lead_nummer)s,
-            %(is_spam)s, %(spam_reason)s, %(privacy_accepted_at)s
+            %(is_spam)s, %(spam_reason)s, %(privacy_accepted_at)s, %(process_after)s
         )
         RETURNING id
         """,
@@ -363,16 +374,37 @@ def _insert_lead(
             "assigned_to": assigned_to,
             "contacted_at": contacted_at,
             "lead_nummer": lead_nummer,
+            # Konzept §G: explizit statt dem SQL-Spaltendefault überlassen,
+            # damit PROCESS_DELAY_MINUTES tatsächlich wirkt (Fund, s.
+            # docs/FUNDE.md) - gilt für NEU/F2/F3/F4 gleichermaßen, auch
+            # eine F3-Korrektur "startet mit eigenem process_after" (§G).
+            "process_after": datetime.now(timezone.utc) + timedelta(minutes=PROCESS_DELAY_MINUTES),
         },
     ).fetchone()
     return str(row[0])
 
 
+# Nur diese beiden gelten als "noch nicht abgearbeitet" im Sinne des Retry-
+# Pfads (app/retry.py) - 'ok'/'mehrdeutig'/'nicht_gefunden'/'entfaellt'/
+# 'simuliert' sind bereits abgeschlossene Ergebnisse.
+_GEOCODE_STATUS_NOCH_OFFEN = ("offen", "fehlgeschlagen")
+
+
 def _supersede(conn: psycopg.Connection, *, old_id: str, new_id: str) -> None:
     conn.execute(
-        "UPDATE leads SET status = 'ersetzt', superseded_by = %(new_id)s, updated_at = now() "
-        "WHERE id = %(old_id)s",
-        {"new_id": new_id, "old_id": old_id},
+        """
+        UPDATE leads
+        SET status = 'ersetzt', superseded_by = %(new_id)s, updated_at = now(),
+            -- Konzept §G: "seine anstehende Verarbeitung wird nicht mehr
+            -- ausgeführt" - nur wenn noch etwas ansteht. War das Geocoding
+            -- schon abgeschlossen (ok/mehrdeutig/...), bleibt das Ergebnis
+            -- als historischer Stand dieser Version stehen (Grenzfall-Notiz
+            -- §G: ein bereits geokodierter Vorgänger wird NICHT verworfen).
+            geocode_status = CASE WHEN geocode_status = ANY(%(noch_offen)s)
+                                   THEN 'entfaellt' ELSE geocode_status END
+        WHERE id = %(old_id)s
+        """,
+        {"new_id": new_id, "old_id": old_id, "noch_offen": list(_GEOCODE_STATUS_NOCH_OFFEN)},
     )
 
 

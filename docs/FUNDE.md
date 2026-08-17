@@ -112,3 +112,18 @@ Menge zurückzufallen. Bestehende Datenbank-Zeilen waren nicht betroffen:
 alle 19 Leads standen zum Zeitpunkt des Funds noch auf
 `geocode_status='offen'` (Block (b), der einzige Aufrufer von `geocode()`,
 war noch nicht gebaut) - es gab nichts zu korrigieren.
+
+## `PROCESS_DELAY_MINUTES` ohne Wirkung (`app/submission.py`)
+
+Von Anfang an in `.env.example` dokumentiert und in Konzept §G beschrieben,
+aber nirgends gelesen: `process_after` bekam ausschließlich den
+SQL-Spaltendefault (fest `now() + interval '1 hour'`), nie den Env-Wert. Der
+Wert ließ sich ändern, ohne dass sich am Verhalten etwas änderte - dasselbe
+Muster wie `SERVICE_AREA_STATES=alle`, eine dokumentierte, aber wirkungslose
+Konfiguration. Aufgefallen erst beim Bauen von Phase 4 Block (b)
+(Retry-Endpoint), weil bis dahin kein Code-Pfad `process_after` überhaupt
+auswertete. Behoben: `app/config.py` liest `PROCESS_DELAY_MINUTES` jetzt
+beim Modul-Import (bricht bei fehlendem Wert sofort ab, wie die übrigen
+Kontingent-Werte), `_insert_lead()` setzt `process_after` explizit statt
+sich auf den Spaltendefault zu verlassen - live verifiziert mit
+`PROCESS_DELAY_MINUTES=0`.
