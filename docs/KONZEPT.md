@@ -544,10 +544,11 @@ Auswertung von oben nach unten, erste zutreffende Regel gewinnt.
 | 7 | `geocode_status = 'simuliert'` | ⚪ | "Geocoding simuliert (Testmodus, keine echte Prüfung)" |
 | 8 | `geocode_status = 'mehrdeutig'` | 🟡 | "Adresse mehrdeutig: {n} mögliche Orte — im Gespräch klären" |
 | 9 | `geocode_status = 'nur_ort'` | 🟡 | "Ort bestätigt, Straße nicht in der Karte gefunden" |
-| 10 | `phone_e164 IS NULL` (kein Telefon angegeben) | 🟡 | "Nur per E-Mail erreichbar" |
-| 11 | `phone_valid = false` | 🟡 | "Telefonnummer nicht lesbar: {phone_raw}" |
-| 12 | `postal_code IS NULL` | 🟡 | "Keine PLZ angegeben — Ort per Geocoding bestätigt" |
-| 13 | sonst | 🟢 | "Vollständig" |
+| 10 | `geocode_status = 'plz_abweichend'` | 🟡 | "PLZ weicht ab: eingegeben {postal_code}, gefunden {geo_postal_code}" |
+| 11 | `phone_e164 IS NULL` (kein Telefon angegeben) | 🟡 | "Nur per E-Mail erreichbar" |
+| 12 | `phone_valid = false` | 🟡 | "Telefonnummer nicht lesbar: {phone_raw}" |
+| 13 | `postal_code IS NULL` | 🟡 | "Keine PLZ angegeben — Ort per Geocoding bestätigt" |
+| 14 | sonst | 🟢 | "Vollständig" |
 
 Zeilen 6 und 7 [bei Implementierung ergänzt: 6 mit §G/Phase 4 Block (a),
 2026-08-16; 7 mit Phase 4 Block (b), 2026-08-17, Fund s. docs/FUNDE.md -
@@ -569,6 +570,23 @@ woran es liegt (Kartendatenlücke, keine Falscheingabe), und trotzdem ein
 Bundesland zum Einordnen hat. Zeile 3s Text zugleich präzisiert: "Adresse
 nicht auffindbar — Schreibweise prüfen" unterstellte einen Fehler des
 Interessenten, den die Untersuchung in genau diesem Fall widerlegt hat.
+
+Zeile 10 (`plz_abweichend`) [bei Implementierung ergänzt, 2026-08-18, Fund
+s. docs/FUNDE.md]: `countrycodes=de` wurde aus der Nominatim-Abfrage
+entfernt (die Ländereinschränkung gehört in `SERVICE_AREA_STATES`/
+`in_service_area`, nicht in die Suchanfrage - sonst kann Zeile 2 nie
+auslösen, eine Auslandsadresse war strukturell nie auffindbar). Ohne
+Ländereinschränkung sucht Nominatim unscharf; ein Abgleich Eingabe vs.
+Ergebnis wurde nötig. Ortsname ist dabei ein hartes Kriterium. PLZ ist
+weicher: fehlt sie in der Antwort (Verwaltungsgrenzen-Objekte wie Dörfer
+liefern grundsätzlich keine), ist das kein Widerspruch; weicht sie
+tatsächlich ab, wird der Treffer nicht verworfen, sondern als
+`plz_abweichend` markiert - ein Interessent mit vertippter, optionaler PLZ
+soll nicht auf Rot landen. Gleichzeitig: `in_service_area` wird jetzt
+primär über `country_code` bestimmt (den Nominatim immer mitliefert),
+nicht mehr nur über eine deutschlandspezifische Bundesland-Zuordnung -
+Auslandsadressen ohne eigenes `state`-Feld (z.B. Wien) lösen dadurch
+zuverlässig Zeile 2 aus, ohne eine Codetabelle pro Land zu brauchen.
 
 Grau (⚪) ist bewusst von Gelb getrennt: Gelb heißt "wir wissen etwas Unsicheres",
 Grau heißt "wir wissen noch nichts". Sales soll graue Zeilen nicht als Problemfall

@@ -45,7 +45,7 @@ def _fehlgeschlagen(fehler: str) -> GeocodeResult:
     return GeocodeResult(
         status="fehlgeschlagen", raw={"fehler": fehler}, candidate_count=0,
         lat=None, lon=None, geo_state=None, geo_municipality=None,
-        geo_country=None, in_service_area=None, geo_state_unresolved=False,
+        geo_country=None, geo_postal_code=None, in_service_area=None, geo_state_unresolved=False,
     )
 
 
@@ -62,9 +62,17 @@ def _nominatim_get(params: dict[str, str | int], user_agent: str) -> list[dict]:
 
 def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult:
     """Strukturierte Abfrage (Konzept: eigene Parameter statt Freitext-q=,
-    damit Straße/PLZ/Ort einzeln ankommen). countrycodes=de statt
-    country=Deutschland - genau ein Einschränkungsmechanismus, nicht zwei
-    potenziell widersprüchliche.
+    damit Straße/PLZ/Ort einzeln ankommen).
+
+    KEIN countrycodes=de mehr (Marco, 2026-08-18, nach dem Fund in
+    docs/FUNDE.md): die Ländereinschränkung gehört in die Geschäftslogik
+    (SERVICE_AREA_STATES/in_service_area, bereits vorhanden), nicht in die
+    Suchanfrage selbst - mit countrycodes=de konnte Nominatim eine
+    Auslandsadresse strukturell nie finden, der ganze Auslandspfad (Konzept
+    §A) war dadurch nie über eine echte Anfrage erreichbar. Die Suche läuft
+    jetzt weltweit; ob eine gefundene Adresse innerhalb des Einzugsgebiets
+    liegt, entscheidet ausschließlich `in_service_area` weiter unten in
+    app.core.geocoding.parse_nominatim_results().
 
     Rückfall auf Ortsebene (Marco, 2026-08-18, nach dem OSM-Fund in
     docs/FUNDE.md: die Straße "Am Mühlenteich" in Groß Grönau ist in
@@ -73,7 +81,11 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
     zweiter, strukturierter Versuch NUR mit PLZ+Ort gestellt. Gelingt der,
     steht das Ergebnis als geocode_status='nur_ort' - Bundesland/Gemeinde/
     Koordinaten auf Ortsebene, aber erkennbar unvollständig gegenüber einem
-    echten Straßentreffer ('ok')."""
+    echten Straßentreffer ('ok'). Beide Versuche laufen durch dieselbe
+    parse_nominatim_results()-Prüfung gegen PLZ+Ort (s. dort) - eine
+    weltweite Suche OHNE diese Prüfung hätte sonst genau den Fehlalarm
+    reproduziert, den sie beheben soll (unscharf gefundener, falscher Ort
+    mit erfundenem Bundesland statt eines ehrlichen "nicht gefunden")."""
     user_agent = os.environ.get("NOMINATIM_USER_AGENT")
     if not user_agent:
         # Nominatims Nutzungsbedingungen verlangen einen identifizierenden
@@ -86,7 +98,6 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
     params: dict[str, str | int] = {
         "street": street,
         "city": city,
-        "countrycodes": "de",
         "format": "jsonv2",
         "addressdetails": 1,
         "limit": 5,
@@ -100,7 +111,9 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
         logger.warning("Nominatim-Anfrage fehlgeschlagen für %r/%r/%r: %s", street, postal_code, city, exc)
         return _fehlgeschlagen(str(exc))
 
-    result = parse_nominatim_results(results, service_area_states=SERVICE_AREA_STATES)
+    result = parse_nominatim_results(
+        results, expected_postal_code=postal_code, expected_city=city, service_area_states=SERVICE_AREA_STATES
+    )
 
     if result.status == "nicht_gefunden":
         # 1.1s Pause: dieselbe Ratenbegrenzung wie zwischen zwei Leads im
@@ -110,7 +123,6 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
         time.sleep(NOMINATIM_MIN_INTERVAL_SECONDS)
         ort_params: dict[str, str | int] = {
             "city": city,
-            "countrycodes": "de",
             "format": "jsonv2",
             "addressdetails": 1,
             "limit": 5,
@@ -128,8 +140,14 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
             # Treffer).
             logger.warning("Ortsebene-Rückfall fehlgeschlagen für %r/%r: %s", postal_code, city, exc)
         else:
-            ort_ergebnis = parse_nominatim_results(ort_results, service_area_states=SERVICE_AREA_STATES)
-            if ort_ergebnis.status == "ok":
+            ort_ergebnis = parse_nominatim_results(
+                ort_results, expected_postal_code=postal_code, expected_city=city, service_area_states=SERVICE_AREA_STATES
+            )
+            # 'ok' ODER 'plz_abweichend' gelten beide als "Ort gefunden" -
+            # der Ortsebene-Rückfall ist ohnehin schon die unschärfere
+            # Variante, eine zusätzliche PLZ-Abweichung ändert daran nichts
+            # Grundsätzliches mehr (Marco, 2026-08-18).
+            if ort_ergebnis.status in ("ok", "plz_abweichend"):
                 # Nicht als 'ok' übernehmen: das Ergebnis bestätigt nur den
                 # ORT, nicht die vollständige Adresse. 'mehrdeutig'/
                 # 'nicht_gefunden' auf Ortsebene lassen das ursprüngliche

@@ -75,17 +75,20 @@ def parse_service_area_states(raw: str) -> set[str]:
 
 @dataclass(frozen=True)
 class GeocodeResult:
-    status: str  # ok | mehrdeutig | nicht_gefunden (fehlgeschlagen kommt aus app/geocoding.py, nicht von hier;
-    # 'nur_ort' entsteht ebenfalls erst in app/geocoding.py::geocode() - eine Umbenennung eines hier
-    # gelieferten 'ok'-Ergebnisses für den PLZ+Ort-Rückfall, kein eigener Rückgabewert dieser Funktion)
+    status: str  # ok | mehrdeutig | nicht_gefunden | plz_abweichend (fehlgeschlagen kommt aus
+    # app/geocoding.py, nicht von hier; 'nur_ort' entsteht ebenfalls erst in
+    # app/geocoding.py::geocode() - eine Umbenennung eines hier gelieferten 'ok'- oder
+    # 'plz_abweichend'-Ergebnisses für den PLZ+Ort-Rückfall, kein eigener Rückgabewert dieser Funktion)
     raw: dict | None  # {"results": [...], "auswahl": {...}}, für geocode_raw - vollständige Antwort + Nachvollziehbarkeit der Entscheidung
-    candidate_count: int  # bei mehrdeutig: Anzahl WIRKLICH verschiedener Orte (nicht roher Trefferzahl); bei ok immer 1
+    candidate_count: int  # bei mehrdeutig: Anzahl WIRKLICH verschiedener Orte (nicht roher Trefferzahl); bei ok/plz_abweichend immer 1
     lat: float | None
     lon: float | None
     geo_state: str | None
     geo_municipality: str | None
     geo_country: str | None  # ISO-Code (country_code), s. Schema-Kommentar
-    in_service_area: bool | None  # None = unbekannt (kein state ermittelbar), nicht False
+    geo_postal_code: str | None  # die von Nominatim GEFUNDENE PLZ (nicht die Eingabe) - nur bei
+    # status='plz_abweichend' inhaltlich von der Eingabe verschieden, s. dort
+    in_service_area: bool | None  # None = unbekannt (weder country_code != DE noch state ermittelbar), nicht False
     geo_state_unresolved: bool  # True: eindeutiger/übereinstimmender Treffer, aber Bundesland trotz ISO-Fallback nicht ermittelbar - erkennbar statt still None (Marco, 2026-08-16)
 
 
@@ -106,6 +109,24 @@ def _extract_geo_municipality(address: dict) -> str | None:
 def _extract_geo_country(address: dict) -> str | None:
     code = address.get("country_code")
     return code.upper() if code else None
+
+
+def _normalisiert_wie_dedup(value: str) -> str:
+    """Gleiche Normalisierung wie der Duplikat-Vergleich (city_norm in
+    app/submission.py::_find_dedup_candidate: lower(trim(city))) - dieselbe
+    Regel gilt jetzt auch beim Abgleich Eingabe vs. Nominatim-Ergebnis
+    (Marco, 2026-08-18), damit beide Stellen konsistent bleiben statt zwei
+    unabhängige Normalisierungen zu pflegen."""
+    return value.strip().lower()
+
+
+def _ort_stimmt_ueberein(address: dict, erwarteter_ort: str) -> bool:
+    erwartet_norm = _normalisiert_wie_dedup(erwarteter_ort)
+    return any(
+        _normalisiert_wie_dedup(address[schluessel]) == erwartet_norm
+        for schluessel in _GEMEINDE_SCHLUESSEL
+        if address.get(schluessel)
+    )
 
 
 def candidate_summaries(results: list[dict]) -> list[dict]:
@@ -136,40 +157,94 @@ class _Kandidat:
 
 
 def parse_nominatim_results(
-    results: list[dict], *, service_area_states: set[str] | None = None
+    results: list[dict],
+    *,
+    expected_postal_code: str | None,
+    expected_city: str,
+    service_area_states: set[str] | None = None,
 ) -> GeocodeResult:
     """results: bereits dekodierte JSON-Liste von Nominatims /search
-    (format=jsonv2, addressdetails=1). service_area_states: Bundesländer,
-    die als Einzugsgebiet gelten - Default alle 16 (SERVICE_AREA_STATES-Env,
-    s. app/geocoding.py).
+    (format=jsonv2, addressdetails=1). expected_postal_code/expected_city:
+    die vom Nutzer eingegebenen Werte, gegen die JEDER Kandidat geprüft wird
+    (s. u.). service_area_states: Bundesländer, die als Einzugsgebiet
+    gelten - Default alle 16 (SERVICE_AREA_STATES-Env, s. app/geocoding.py).
+
+    Abgleich Eingabe vs. Ergebnis (Marco, 2026-08-18, nach dem Fund in
+    docs/FUNDE.md: seit app/geocoding.py::geocode() nicht mehr auf
+    countrycodes=de beschränkt sucht, lieferte Nominatim für "Stephansplatz
+    1, 1010 Wien" unscharf einen Weiler namens "Wien" in Bayern, PLZ 83334 -
+    eine vierstellige österreichische PLZ, die in Deutschland gar nicht
+    existiert, wurde nie gegen das Ergebnis geprüft). Zwei getrennte
+    Kriterien, bewusst unterschiedlich streng:
+
+    - **Ortsname (hart):** muss - nach derselben Normalisierung wie der
+      Duplikat-Vergleich (lower/trim) - mit mindestens einem der Nominatim-
+      Ortsfelder (city/town/municipality/village/township/hamlet)
+      übereinstimmen. Kein Kandidat erfüllt das -> nicht_gefunden,
+      unabhängig davon, wie viele Treffer Nominatim insgesamt lieferte.
+    - **PLZ (weich, erst am gewählten Kandidaten geprüft):** eine FEHLENDE
+      PLZ in der Antwort ist KEIN Widerspruch (Verwaltungsgrenzen-Objekte
+      wie Dörfer/Gemeinden liefern grundsätzlich keine PLZ, s.
+      docs/FUNDE.md - das hätte sonst den Ortsebene-Rückfall aus Punkt 1
+      derselben Session für genau seinen eigenen Zielfall unbrauchbar
+      gemacht). Eine TATSÄCHLICH abweichende PLZ verwirft den Treffer
+      NICHT, sondern markiert ihn als status='plz_abweichend' statt 'ok' -
+      ein Interessent, der sich bei einem optionalen Feld vertippt, aber
+      dessen Ort eindeutig stimmt, soll nicht auf Rot landen (Marco,
+      2026-08-18). Der gemeinsame Fehler, den das behebt: "kein Wert" und
+      "falscher Wert" gleich zu behandeln erzeugt falsche Negative - trat
+      in dieser Session dreimal auf (PLZ hier, Bundesland in §4/AT-Codes,
+      Telefon schon vorher in app/core/ampel.py).
+
+    Gilt für JEDEN Aufruf gleichermaßen (den ersten Versuch MIT Straße und
+    den Ortsebene-Rückfall in geocode()) - dieselbe Funktion, dieselbe
+    Prüfung, kein Sonderfall für den Rückfall.
 
     Mehrdeutig heißt NICHT "mehr als ein Treffer", sondern "Treffer, die
     sich fachlich widersprechen" (Marco, 2026-08-16, nach Live-Test gegen
     die echte API): eine vollständige Adresse liefert bei Nominatim oft
     mehrere OSM-Objekte an derselben Stelle (Gebäude, Ausstattung,
     Geschäfte) - dieselbe Gemeinde, dasselbe Bundesland. Kriterium ist
-    deshalb, ob sich Bundesland ODER Gemeinde zwischen den Kandidaten
-    unterscheiden. Stimmen alle überein, gewinnt der Kandidat mit dem
-    höchsten Nominatim-`importance`-Wert als "genauester Treffer". Der
-    Testfall "Lindenweg 3, Neustadt" (Aufgabe) bleibt mehrdeutig, weil dort
-    tatsächlich drei verschiedene Bundesländer auftreten (Baden-Württemberg/
-    Schleswig-Holstein/Sachsen - "Neustadt" als Ortsnamen-Fragment gibt es
-    mehrfach).
+    deshalb, ob sich Bundesland ODER Gemeinde zwischen den (bereits auf
+    Ortsnamen-Übereinstimmung gefilterten) Kandidaten unterscheiden (PLZ
+    spielt für die Mehrdeutig-Erkennung keine Rolle, nur für den
+    letztendlich gewählten Kandidaten). Stimmen alle überein, gewinnt der
+    Kandidat mit dem höchsten Nominatim-`importance`-Wert als "genauester
+    Treffer". Der Testfall "Lindenweg 3, Neustadt" (Aufgabe) bleibt
+    mehrdeutig, weil dort tatsächlich drei verschiedene Bundesländer
+    auftreten (Baden-Württemberg/Schleswig-Holstein/Sachsen - "Neustadt"
+    als Ortsnamen-Fragment gibt es mehrfach).
 
     Jede Entscheidung wird in `raw.auswahl` protokolliert (wie viele
     Kandidaten es gab, ob sie übereinstimmten oder widersprachen, welcher
     gewählt wurde) - sonst wäre später nicht mehr nachvollziehbar, ob ein
     Treffer wirklich eindeutig war oder unter mehreren ausgewählt wurde.
+    `gewaehlter_index` bezieht sich auf die Position im UNGEFILTERTEN
+    `results` (nicht auf die Position nach dem Ortsnamen-Abgleich), damit
+    der Index in `geocode_raw` immer auf `raw["results"]` zeigt, egal ob
+    und wie viel gefiltert wurde.
     """
     service_area = service_area_states if service_area_states is not None else set(GERMAN_STATES)
 
-    if not results:
+    passende = [
+        (index, r) for index, r in enumerate(results)
+        if _ort_stimmt_ueberein(r.get("address", {}), expected_city)
+    ]
+
+    if not passende:
         return GeocodeResult(
             status="nicht_gefunden",
-            raw={"results": results, "auswahl": {"kandidaten_gesamt": 0, "eingestuft_als": "keine_treffer", "gewaehlter_index": None}},
+            raw={
+                "results": results,
+                "auswahl": {
+                    "kandidaten_gesamt": len(results),
+                    "eingestuft_als": "keine_treffer" if not results else "kein_passender_treffer",
+                    "gewaehlter_index": None,
+                },
+            },
             candidate_count=0,
             lat=None, lon=None, geo_state=None, geo_municipality=None,
-            geo_country=None, in_service_area=None, geo_state_unresolved=False,
+            geo_country=None, geo_postal_code=None, in_service_area=None, geo_state_unresolved=False,
         )
 
     kandidaten = [
@@ -180,7 +255,7 @@ def parse_nominatim_results(
             geo_country=_extract_geo_country(r.get("address", {})),
             importance=r.get("importance") or 0.0,
         )
-        for r in results
+        for _, r in passende
     ]
     orte = {(k.geo_state, k.geo_municipality) for k in kandidaten}
 
@@ -201,33 +276,55 @@ def parse_nominatim_results(
             # Übereinstimmungs-Kriterium selbst).
             candidate_count=len(orte),
             lat=None, lon=None, geo_state=None, geo_municipality=None,
-            geo_country=None, in_service_area=None, geo_state_unresolved=False,
+            geo_country=None, geo_postal_code=None, in_service_area=None, geo_state_unresolved=False,
         )
 
-    # Alle Kandidaten sind (Bundesland, Gemeinde)-gleich - ein eindeutiger
-    # Ort, bei mehreren OSM-Objekten gewinnt der mit dem höchsten
-    # importance-Wert (Nominatims eigene Relevanz-Kennzahl).
-    gewinner_index = max(range(len(kandidaten)), key=lambda i: kandidaten[i].importance)
-    gewinner = kandidaten[gewinner_index]
+    # Alle (adress-geprüften) Kandidaten sind (Bundesland, Gemeinde)-gleich -
+    # ein eindeutiger Ort, bei mehreren OSM-Objekten gewinnt der mit dem
+    # höchsten importance-Wert (Nominatims eigene Relevanz-Kennzahl).
+    gewinner_position = max(range(len(kandidaten)), key=lambda i: kandidaten[i].importance)
+    gewinner = kandidaten[gewinner_position]
+    gewinner_index = passende[gewinner_position][0]  # Position im ungefilterten results
     ergebnis = gewinner.ergebnis
 
     lat = float(ergebnis["lat"]) if ergebnis.get("lat") is not None else None
     lon = float(ergebnis["lon"]) if ergebnis.get("lon") is not None else None
-    in_service_area = (gewinner.geo_state in service_area) if gewinner.geo_state else None
+
+    # Land vor Bundesland (Marco, 2026-08-18, s. docs/FUNDE.md): country_code
+    # liefert Nominatim IMMER mit, unabhängig davon, ob ein state-Feld
+    # existiert (Wien z.B. hat keins, nur "ISO3166-2-lvl4": "AT-9" - eine
+    # deutschlandspezifische ISO-Tabelle hilft dort nicht). Ist das Land
+    # nicht DE, ist die Adresse unabhängig vom Bundesland außerhalb des
+    # Einzugsgebiets - keine Codetabelle pro Land nötig. Nur wenn das Land
+    # DE ist (oder unbekannt), entscheidet weiterhin SERVICE_AREA_STATES.
+    if gewinner.geo_country and gewinner.geo_country != "DE":
+        in_service_area = False
+    elif gewinner.geo_state:
+        in_service_area = gewinner.geo_state in service_area
+    else:
+        in_service_area = None
     geo_state_unresolved = gewinner.geo_state is None
 
+    # PLZ-Abweichung nur am GEWÄHLTEN Kandidaten geprüft (nicht als
+    # Filterkriterium, s. Docstring oben): fehlt sie in der Antwort, ist
+    # das kein Widerspruch; weicht sie tatsächlich ab, bleibt der Treffer
+    # gültig, aber der Status macht die Abweichung sichtbar statt sie zu
+    # verschweigen.
+    gefundene_plz = ergebnis.get("address", {}).get("postcode") or None
+    plz_weicht_ab = bool(expected_postal_code) and bool(gefundene_plz) and gefundene_plz != expected_postal_code
+
     return GeocodeResult(
-        status="ok",
+        status="plz_abweichend" if plz_weicht_ab else "ok",
         raw={
             "results": results,
             "auswahl": {
                 "kandidaten_gesamt": len(results),
-                "eingestuft_als": "eindeutig" if len(results) == 1 else "uebereinstimmend",
+                "eingestuft_als": "eindeutig" if len(passende) == 1 else "uebereinstimmend",
                 "gewaehlter_index": gewinner_index,
             },
         },
         candidate_count=1,
         lat=lat, lon=lon, geo_state=gewinner.geo_state, geo_municipality=gewinner.geo_municipality,
-        geo_country=gewinner.geo_country, in_service_area=in_service_area,
+        geo_country=gewinner.geo_country, geo_postal_code=gefundene_plz, in_service_area=in_service_area,
         geo_state_unresolved=geo_state_unresolved,
     )

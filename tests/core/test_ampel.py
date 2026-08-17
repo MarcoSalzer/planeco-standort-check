@@ -11,6 +11,7 @@ def _base(**overrides):
         geocode_status="ok",
         geo_state="Sachsen",
         geo_country=None,
+        geo_postal_code=None,
         geocode_candidate_count=None,
         phone_raw="0170 5551234",
         phone_valid=True,
@@ -60,6 +61,12 @@ def test_nur_ort_ist_gelb_und_benennt_die_kartenluecke():
     result = ampel(**_base(geocode_status="nur_ort"))
     assert result.farbe == "gelb"
     assert result.grund == "Ort bestätigt, Straße nicht in der Karte gefunden"
+
+
+def test_plz_abweichend_ist_gelb_und_nennt_eingegebene_und_gefundene_plz():
+    result = ampel(**_base(geocode_status="plz_abweichend", postal_code="12345", geo_postal_code="54321"))
+    assert result.farbe == "gelb"
+    assert result.grund == "PLZ weicht ab: eingegeben 12345, gefunden 54321"
 
 
 def test_regel4_fehlgeschlagen_ist_grau_nicht_gelb():

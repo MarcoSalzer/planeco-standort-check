@@ -1014,7 +1014,8 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
         ]),
         ("Adresse (Grundstück)", [
             ("Straße", _text(row["street"])),
-            ("PLZ", _text(row["postal_code"])),
+            ("PLZ (eingegeben)", _text(row["postal_code"])),
+            ("PLZ (von Nominatim gefunden)", _text(row["geo_postal_code"])),
             ("Ort", _text(row["city"])),
             ("Bundesland", _text(row["geo_state"])),
             ("Land", _text(row["geo_country"])),

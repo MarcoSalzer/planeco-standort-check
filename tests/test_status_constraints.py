@@ -60,7 +60,7 @@ def test_ampel_behandelt_jeden_erlaubten_geocode_status(geocode_status):
     # geocode_status='simuliert' brachte /admin zum Absturz).
     result = ampel(
         is_spam=False, spam_reason=None, in_service_area=None,
-        geocode_status=geocode_status, geo_state=None, geo_country=None,
+        geocode_status=geocode_status, geo_state=None, geo_country=None, geo_postal_code=None,
         geocode_candidate_count=None, phone_raw=None, phone_valid=False,
         postal_code=None,
     )

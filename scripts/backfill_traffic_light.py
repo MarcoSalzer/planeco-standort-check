@@ -27,10 +27,16 @@ from app.core.geocoding import parse_nominatim_results  # noqa: E402
 from app.db import get_connection  # noqa: E402
 
 
-def _recompute_candidate_count(geocode_status: str, geocode_raw) -> int | None:
+def _recompute_candidate_count(geocode_status: str, geocode_raw, postal_code: str | None, city: str) -> int | None:
     if geocode_status != "mehrdeutig" or not geocode_raw or not geocode_raw.get("results"):
         return None
-    return parse_nominatim_results(geocode_raw["results"]).candidate_count
+    # expected_postal_code/expected_city seit dem Adress-Abgleich-Fund
+    # (2026-08-18, s. docs/FUNDE.md) Pflichtparameter - hier dieselbe
+    # PLZ/Ort-Spalte wie beim ursprünglichen geocode()-Aufruf, damit die
+    # Nachberechnung exakt dieselbe Klassifikation reproduziert.
+    return parse_nominatim_results(
+        geocode_raw["results"], expected_postal_code=postal_code, expected_city=city
+    ).candidate_count
 
 
 def main() -> None:
@@ -40,7 +46,7 @@ def main() -> None:
         cur.execute(
             """
             SELECT id, is_spam, spam_reason, in_service_area, geocode_status, geo_state,
-                   geo_country, geocode_candidate_count, geocode_raw, phone_raw, phone_valid, postal_code
+                   geo_country, geo_postal_code, geocode_candidate_count, geocode_raw, phone_raw, phone_valid, postal_code, city
             FROM leads
             """
         )
@@ -52,7 +58,9 @@ def main() -> None:
     for row in rows:
         candidate_count = row["geocode_candidate_count"]
         if candidate_count is None:
-            candidate_count = _recompute_candidate_count(row["geocode_status"], row["geocode_raw"])
+            candidate_count = _recompute_candidate_count(
+                row["geocode_status"], row["geocode_raw"], row["postal_code"], row["city"]
+            )
         result = ampel(
             is_spam=row["is_spam"],
             spam_reason=row["spam_reason"],
@@ -60,6 +68,7 @@ def main() -> None:
             geocode_status=row["geocode_status"],
             geo_state=row["geo_state"],
             geo_country=row["geo_country"],
+            geo_postal_code=row["geo_postal_code"],
             geocode_candidate_count=candidate_count,
             phone_raw=row["phone_raw"],
             phone_valid=row["phone_valid"],

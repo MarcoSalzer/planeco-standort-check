@@ -12,9 +12,9 @@ Liste und Detailansicht lesen nur noch diese Spalten.
 Drei Abweichungen von der wörtlichen Regelformulierung in §B, mit Marco
 abgestimmt (2026-08-16/17):
 
-- Regeln 10/11 (Nummerierung nach Konzept §B seit dem 'nur_ort'-Zusatz,
-  2026-08-18) prüfen `phone_raw` statt `phone_e164` auf "kein Telefon
-  angegeben". `normalize_phone` liefert `phone_e164=None` bereits immer
+- Regeln 11/12 (Nummerierung nach Konzept §B seit den 'nur_ort'/
+  'plz_abweichend'-Zusätzen, 2026-08-18) prüfen `phone_raw` statt
+  `phone_e164` auf "kein Telefon angegeben". `normalize_phone` liefert `phone_e164=None` bereits immer
   dann, wenn `phone_valid=False` ist - auch wenn gar nichts eingegeben
   wurde. "phone_e164 IS NULL" kann "nichts eingetragen" also nicht von
   "etwas Unlesbares eingetragen" unterscheiden, obwohl §B dafür zwei
@@ -30,6 +30,14 @@ abgestimmt (2026-08-16/17):
   zur Straße "Am Mühlenteich" in Groß Grönau) neu ergänzt: Migration 0011,
   Rückfall-Logik in app/geocoding.py::geocode(). 'nicht_gefunden'-Text
   gleichzeitig präzisiert (kein unterstellter Tippfehler mehr).
+- `geocode_status='plz_abweichend'` (2026-08-18, nach dem countrycodes=de-
+  Fund in docs/FUNDE.md, Migration 0012): Ort eindeutig gefunden, aber die
+  von Nominatim gelieferte PLZ weicht von der Eingabe ab - fehlende PLZ in
+  der Antwort ist dagegen KEIN Widerspruch (s. app/core/geocoding.py).
+  Gleichzeitig: in_service_area wird jetzt primär über country_code
+  bestimmt (nicht mehr nur über eine deutschlandspezifische Bundesland-
+  Zuordnung), damit Auslandsadressen ohne eigenes state-Feld (z.B. Wien)
+  zuverlässig als außerhalb erkannt werden.
 """
 from dataclasses import dataclass
 
@@ -50,6 +58,7 @@ def ampel(
     geocode_status: str,
     geo_state: str | None,
     geo_country: str | None,
+    geo_postal_code: str | None,
     geocode_candidate_count: int | None,
     phone_raw: str | None,
     phone_valid: bool,
@@ -81,6 +90,15 @@ def ampel(
         # Rot: Sales weiß, woran es liegt (Kartendatenlücke, keine
         # Falscheingabe), und hat trotzdem ein Bundesland zum Einordnen.
         return AmpelResult("gelb", "Ort bestätigt, Straße nicht in der Karte gefunden")
+
+    if geocode_status == "plz_abweichend":
+        # Marco, 2026-08-18, s. docs/FUNDE.md: "fehlt eine PLZ" und "die PLZ
+        # ist falsch" sind zwei verschiedene Dinge - hier liegt der zweite
+        # Fall vor (Ort eindeutig gefunden, aber die gefundene PLZ weicht
+        # tatsächlich von der Eingabe ab). Ein Vertipper in einem
+        # optionalen Feld darf den Lead nicht entwerten (Rot); Sales klärt
+        # die Abweichung im Gespräch.
+        return AmpelResult("gelb", f"PLZ weicht ab: eingegeben {postal_code}, gefunden {geo_postal_code}")
 
     if geocode_status == "fehlgeschlagen":
         return AmpelResult("grau", "Geocoding ausstehend (Dienst nicht erreichbar)")

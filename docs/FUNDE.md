@@ -317,3 +317,99 @@ End-to-end gegen die echte Datenbank verifiziert (Insert + `geocode()` +
 `apply_traffic_light()` in einer zurückgerollten Transaktion): Groß
 Grönau ergibt `geocode_status='nur_ort'`, `geo_state='Schleswig-Holstein'`,
 Ampel gelb mit dem neuen Text - keine Spuren in der Datenbank hinterlassen.
+
+## Eine Reparatur erzeugte einen schlimmeren Fehler als den behobenen: der Auslandspfad war nie erreichbar, und der erste Fix dafür unscharf (`app/geocoding.py`, `app/core/geocoding.py`, `app/core/ampel.py`)
+
+Der Auslandspfad (Konzept §A) wurde diese Session gebaut und ausschließlich
+mit von Hand konstruierten `GeocodeResult`-Objekten geprüft
+(`in_service_area=False` direkt gesetzt, nie über einen echten Nominatim-
+Aufruf hergeleitet) - dieselbe Annahme, aus der die Notwendigkeit des
+Auslandspfads überhaupt entstand (Konzept §A geht von realen Auslands-
+adressen aus), wurde beim Prüfen nie infrage gestellt. Phase 5 sieht mit
+"Testadresse in Österreich → rot + Auslandsmail" explizit einen Fall vor,
+der genau das prüft - vor dieser Untersuchung war das nie gegen die echte
+Nominatim-API gelaufen.
+
+**Ursache gefunden: `app/geocoding.py::geocode()` schränkte jede Abfrage
+auf `countrycodes=de` ein**, seit Phase 4 Block a. Damit konnte eine
+Adresse außerhalb Deutschlands strukturell nie gefunden werden - nicht
+"falsch erkannt", sondern gar nicht erst in der Ergebnismenge. Live
+geprüft: "Stephansplatz 1, 1010 Wien" und "Bahnhofstrasse 1, 8001 Zürich"
+lieferten mit `countrycodes=de` beide null Treffer.
+
+**Der erste Fix (Ländereinschränkung entfernen) erzeugte einen neuen,
+schlimmeren Fehler.** Ohne `countrycodes=de` sucht Nominatim unscharf -
+für "Stephansplatz 1, 1010 Wien" lieferte der (zu diesem Zeitpunkt noch
+ungeprüfte) Ortsebene-Rückfall aus dem Fund oben einen Weiler namens
+"Wien" bei Inzell, Bayern:
+```json
+{"hamlet": "Wien", "village": "Gschwall", "state": "Bayern",
+ "postcode": "83334", "country_code": "de"}
+```
+Ergebnis vor der Korrektur: `geocode_status='nur_ort'`,
+`geo_state='Bayern'`, `in_service_area=True` - eine österreichische Adresse
+wurde als bestätigt innerhalb Deutschlands ausgewiesen, mit einem
+erfundenen Bundesland. Reproduzierbar, kein Einzelfall: "Bahnhofstrasse 1,
+8001 Zürich" landete ebenso unscharf in Nordrhein-Westfalen. **Das ist
+schlimmer als der Ausgangszustand:** vorher ehrlich rot ("nicht
+gefunden"), jetzt falsch gelb/grün mit einem Bundesland, das nicht
+stimmt - ein stiller Fehler, den CLAUDE.md Regel 12 und die Aufgabe
+insgesamt genau deshalb suchen, weil er sich als korrektes Ergebnis
+tarnt statt als sichtbarer Fehlschlag.
+
+**Zweite Korrekturrunde, zwei getrennte Fixe, beide nach demselben
+Prinzip.** Marcos Diagnose traf den gemeinsamen Nenner: eine Prüfung muss
+unterscheiden zwischen "der Wert widerspricht der Eingabe" und "es gibt
+schlicht keinen Wert". Beides gleich zu behandeln erzeugt falsche
+Negative (oder hier: falsche Positive) - und dasselbe Muster trat in
+dieser Session bereits ein drittes Mal auf, nur unbemerkt: `app/core/
+ampel.py` prüft "kein Telefon angegeben" bewusst über `phone_raw` statt
+`phone_e164`, weil `normalize_phone()` bei jedem unlesbaren UND bei jedem
+fehlenden Wert gleichermaßen `phone_e164=None` liefert - `phone_e164 IS
+NULL` konnte "nichts eingetragen" nie von "etwas Unlesbares eingetragen"
+unterscheiden, obwohl Konzept §B dafür zwei verschiedene Texte vorsieht.
+Dieselbe Verwechslungsgefahr, drei verschiedene Felder (Telefon, jetzt PLZ
+und Bundesland/Land), zufällig alle drei in diesem Case aufgetreten.
+
+1. **PLZ-Abgleich (`app/core/geocoding.py::parse_nominatim_results`):**
+   Eine PLZ, die in Nominatims Antwort schlicht FEHLT (Verwaltungsgrenzen-
+   Objekte wie Dörfer/Gemeinden liefern grundsätzlich keine - genau der Fall
+   bei Groß Grönau oben), ist KEIN Widerspruch und verwirft den Treffer
+   nicht. Eine PLZ, die tatsächlich ANDERS lautet, verwirft den Treffer
+   ebenfalls nicht, macht die Abweichung aber sichtbar:
+   `geocode_status='plz_abweichend'` (Migration 0012, neue Spalte
+   `geo_postal_code` für die tatsächlich gefundene PLZ), Ampel gelb "PLZ
+   weicht ab: eingegeben {X}, gefunden {Y}" statt Rot oder eines
+   stillschweigend akzeptierten Treffers. Für den Bayern-Weiler bedeutet
+   das: nicht mehr `nur_ort`/grün-artig bestätigt, aber auch nicht
+   verworfen - sichtbar als Widerspruch, den Sales im Gespräch klärt.
+2. **Land vor Bundesland (`app/core/geocoding.py`, `app/core/ampel.py`):**
+   `in_service_area` wird jetzt PRIMÄR über `country_code` bestimmt, den
+   Nominatim bei jeder Antwort mitliefert, unabhängig davon, ob ein
+   `state`-Feld existiert. Ist das Land nicht `DE`, ist die Adresse
+   außerhalb - unabhängig vom Bundesland. Erst wenn das Land `DE` ist (oder
+   unbekannt), entscheidet weiterhin `SERVICE_AREA_STATES`. Das behebt
+   nebenbei ein zweites, unabhängiges Problem: Wien liefert (wie die
+   deutschen Stadtstaaten vor deren ISO-Rückfall) KEIN `state`-Feld, nur
+   `"ISO3166-2-lvl4": "AT-9"` - eine rein deutsche Codetabelle
+   (`ISO_3166_2_TO_STATE`) konnte das nie auflösen. Mit country_code als
+   primärem Kriterium ist keine Codetabelle pro Land nötig.
+
+Beide Korrekturen wieder live gegen die echte API verifiziert (Wien: `ok`,
+`geo_country='AT'`, `in_service_area=False`; Zürich: unverändert korrekt,
+da dort `state` direkt geliefert wird; Groß Grönau: `nur_ort` wieder
+funktionsfähig; Hamburg mit einer bewusst falschen Test-PLZ:
+`plz_abweichend` statt fälschlich `ok`). End-to-end mit einer
+zurückgerollten Transaktion geprüft: eine Wien-Adresse durchläuft jetzt
+tatsächlich `status='ausland'`, `ausland_hinweis_status='offen'`, die
+zweite Mail lief simuliert durch - der Auslandspfad löst zum ersten Mal
+über einen echten Nominatim-Aufruf aus, nicht nur mit konstruierten
+Testdaten.
+
+**Als Nebenbefund bestätigt, nicht neu behoben:** "Lindenweg 3, Neustadt"
+ohne PLZ (Aufgabenbeispiel) ergibt mit dem strengen Ortsnamen-Abgleich
+jetzt `nicht_gefunden` statt `mehrdeutig`, weil keiner von Nominatims drei
+Kandidaten exakt "Neustadt" heißt (sondern "Neustadt im Schwarzwald" usw.).
+Mit Marco abgestimmt: Verhalten ist so richtig, bewusst nicht auf
+Teilstring-Toleranz aufgeweicht - das wäre derselbe Fehlertyp wie der
+Bayern-Weiler-Fund, nur eine Stufe vorsichtiger versteckt.

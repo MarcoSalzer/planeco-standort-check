@@ -26,7 +26,7 @@ def apply_traffic_light(conn: psycopg.Connection, lead_id: str) -> AmpelResult:
     row = conn.execute(
         """
         SELECT is_spam, spam_reason, in_service_area, geocode_status, geo_state,
-               geo_country, geocode_candidate_count, phone_raw, phone_valid, postal_code
+               geo_country, geo_postal_code, geocode_candidate_count, phone_raw, phone_valid, postal_code
         FROM leads WHERE id = %(id)s
         """,
         {"id": lead_id},
@@ -38,10 +38,11 @@ def apply_traffic_light(conn: psycopg.Connection, lead_id: str) -> AmpelResult:
         geocode_status=row[3],
         geo_state=row[4],
         geo_country=row[5],
-        geocode_candidate_count=row[6],
-        phone_raw=row[7],
-        phone_valid=row[8],
-        postal_code=row[9],
+        geo_postal_code=row[6],
+        geocode_candidate_count=row[7],
+        phone_raw=row[8],
+        phone_valid=row[9],
+        postal_code=row[10],
     )
     conn.execute(
         "UPDATE leads SET traffic_light = %(farbe)s, traffic_light_reason = %(grund)s WHERE id = %(id)s",
