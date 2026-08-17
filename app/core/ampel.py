@@ -6,20 +6,22 @@ beim Lesen der Lead-Liste aufgerufen (app/admin.py); die im Schema
 vorgesehene Cache-Spalte `traffic_light`/`traffic_light_reason` wird erst
 mit Phase 4 (Geocoding-Schreibpfad) bei jedem INSERT/UPDATE befüllt.
 
-Zwei Abweichungen von der wörtlichen Regelformulierung in §B, mit Marco
-abgestimmt (2026-08-16):
+Drei Abweichungen von der wörtlichen Regelformulierung in §B, mit Marco
+abgestimmt (2026-08-16/17):
 
-- Regeln 7/8 prüfen `phone_raw` statt `phone_e164` auf "kein Telefon
+- Regeln 9/10 prüfen `phone_raw` statt `phone_e164` auf "kein Telefon
   angegeben". `normalize_phone` liefert `phone_e164=None` bereits immer
   dann, wenn `phone_valid=False` ist - auch wenn gar nichts eingegeben
   wurde. "phone_e164 IS NULL" kann "nichts eingetragen" also nicht von
   "etwas Unlesbares eingetragen" unterscheiden, obwohl §B dafür zwei
-  verschiedene Texte vorsieht (Regel 8 zeigt bewusst den Rohwert). Mit
+  verschiedene Texte vorsieht (Regel 10 zeigt bewusst den Rohwert). Mit
   `phone_raw` bleibt die Unterscheidung erhalten.
-- `geocode_status='entfaellt'` (Konzept §G, nach §B ergänzt) fehlte in
-  der §B-Tabelle. Ergänzt als eigene Grau-Regel direkt nach 'offen',
-  sonst würde ein Lead, dessen Geocoding durch eine Korrektur entfällt,
-  fälschlich als 🟢 "Vollständig" erscheinen.
+- `geocode_status='entfaellt'` (Konzept §G) und `geocode_status='simuliert'`
+  (DRY_RUN_GEOCODE) fehlten zunächst in der §B-Tabelle, obwohl der Code
+  (bzw. die DB-Constraint) sie schon kannte - zu 'simuliert' s. den Fund in
+  docs/FUNDE.md: genau diese Lücke ließ die komplette Lead-Liste mit einem
+  ValueError abstürzen, sobald ein einziger Lead diesen Status trug. Beide
+  jetzt nachgezogen, Tabelle und Code stimmen wieder überein.
 """
 from dataclasses import dataclass
 
@@ -64,6 +66,9 @@ def ampel(
 
     if geocode_status == "entfaellt":
         return AmpelResult("grau", "Geocoding entfällt (durch Korrektur ersetzt)")
+
+    if geocode_status == "simuliert":
+        return AmpelResult("grau", "Geocoding simuliert (Testmodus, keine echte Prüfung)")
 
     if geocode_status == "mehrdeutig":
         if geocode_candidate_count:

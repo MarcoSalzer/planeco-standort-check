@@ -127,3 +127,34 @@ beim Modul-Import (bricht bei fehlendem Wert sofort ab, wie die übrigen
 Kontingent-Werte), `_insert_lead()` setzt `process_after` explizit statt
 sich auf den Spaltendefault zu verlassen - live verifiziert mit
 `PROCESS_DELAY_MINUTES=0`.
+
+## Eine korrekte Absicherung am falschen Ort legt das ganze Dashboard lahm (`app/core/ampel.py`, `app/admin.py`)
+
+Beim Einführen von `geocode_status='simuliert'` (Migration 0007, Phase 4
+Block b) wurde die Ampel-Regeltabelle (Konzept §B) nicht mitgezogen -
+`ampel()` kennt nur die ihr beim Bauen bekannten Werte und wirft bewusst
+einen `ValueError` bei allem Unbekannten, statt zu raten (CLAUDE.md Regel
+3). Genau dieses richtige Verhalten wurde zum eigentlichen Problem: Marcos
+Rückmeldung dazu trifft es genau - nicht der fehlende Statuswert selbst ist
+interessant (ein triviales Nachziehen), sondern dass die Absicherung an der
+falschen Stelle sitzt. `app/admin.py::dashboard` ruft `ampel()` in einer
+Schleife über jede Zeile der Liste auf, ohne jede Isolierung zwischen
+Zeilen - ein einziger Lead mit `geocode_status='simuliert'` (aus dem
+eigenen Live-Test von Block b) brachte deshalb nicht nur diese eine Zeile,
+sondern die komplette Lead-Liste mit einem 500er zum Absturz. Dieselbe
+Absicherung in einer Funktion platziert, die einzeln pro Zeile aufgerufen
+und abgefangen wird - etwa direkt in `_decorate_row` mit einem
+Try/Except, das eine defekte Zeile auffällig, aber isoliert markiert -
+hätte denselben fehlenden Wert nur als eine auffällige Zeile gezeigt, nicht
+als Totalausfall. Aufgefallen durch Marco beim Öffnen des Dashboards, nicht
+bei der Live-Verifikation von Block (b): dort wurden Retry-Endpunkt und
+Datenbankzustand direkt geprüft, das Dashboard selbst aber nie geladen,
+obwohl zu dem Zeitpunkt bereits mehrere eigene Testleads mit
+`geocode_status='simuliert'` in der Datenbank standen - eine Lücke in der
+eigenen Testtiefe, nicht nur im Code. Behoben: `simuliert` in `ampel()`
+und Konzept §B ergänzt (grau, "Geocoding simuliert (Testmodus, keine echte
+Prüfung)"). Zusätzlich, wichtiger als der Einzelfall:
+`tests/test_status_constraints.py` prüft `ampel()` jetzt gegen JEDEN von
+der echten CHECK-Constraint erlaubten `geocode_status`-Wert - gegen die DB
+gelesen, nicht gegen eine von Hand gepflegte Liste, die genau auf dieselbe
+Art still hätte veralten können wie die Regeltabelle selbst.

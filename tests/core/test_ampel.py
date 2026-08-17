@@ -67,6 +67,14 @@ def test_entfaellt_ist_grau_nicht_faelschlich_gruen():
     assert result.farbe == "grau"
 
 
+def test_simuliert_ist_grau_und_benennt_den_testmodus():
+    # Fund 17.08.: fehlte hier, ampel() warf für 'simuliert' einen
+    # ValueError - ein einziger Dry-Run-Lead legte die ganze Liste lahm.
+    result = ampel(**_base(geocode_status="simuliert"))
+    assert result.farbe == "grau"
+    assert "Testmodus" in result.grund
+
+
 def test_regel6_mehrdeutig_mit_kandidatenzahl():
     result = ampel(**_base(geocode_status="mehrdeutig", geocode_candidate_count=3))
     assert result.farbe == "gelb"

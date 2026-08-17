@@ -540,15 +540,26 @@ Auswertung von oben nach unten, erste zutreffende Regel gewinnt.
 | 3 | `geocode_status = 'nicht_gefunden'` | 🔴 | "Adresse nicht auffindbar — Schreibweise prüfen" |
 | 4 | `geocode_status = 'fehlgeschlagen'` | ⚪ | "Geocoding ausstehend (Dienst nicht erreichbar)" |
 | 5 | `geocode_status = 'offen'` | ⚪ | "Prüfung läuft" |
-| 6 | `geocode_status = 'mehrdeutig'` | 🟡 | "Adresse mehrdeutig: {n} mögliche Orte — im Gespräch klären" |
-| 7 | `phone_e164 IS NULL` (kein Telefon angegeben) | 🟡 | "Nur per E-Mail erreichbar" |
-| 8 | `phone_valid = false` | 🟡 | "Telefonnummer nicht lesbar: {phone_raw}" |
-| 9 | `postal_code IS NULL` | 🟡 | "Keine PLZ angegeben — Ort per Geocoding bestätigt" |
-| 10 | sonst | 🟢 | "Vollständig" |
+| 6 | `geocode_status = 'entfaellt'` | ⚪ | "Geocoding entfällt (durch Korrektur ersetzt)" |
+| 7 | `geocode_status = 'simuliert'` | ⚪ | "Geocoding simuliert (Testmodus, keine echte Prüfung)" |
+| 8 | `geocode_status = 'mehrdeutig'` | 🟡 | "Adresse mehrdeutig: {n} mögliche Orte — im Gespräch klären" |
+| 9 | `phone_e164 IS NULL` (kein Telefon angegeben) | 🟡 | "Nur per E-Mail erreichbar" |
+| 10 | `phone_valid = false` | 🟡 | "Telefonnummer nicht lesbar: {phone_raw}" |
+| 11 | `postal_code IS NULL` | 🟡 | "Keine PLZ angegeben — Ort per Geocoding bestätigt" |
+| 12 | sonst | 🟢 | "Vollständig" |
+
+Zeilen 6 und 7 [bei Implementierung ergänzt: 6 mit §G/Phase 4 Block (a),
+2026-08-16; 7 mit Phase 4 Block (b), 2026-08-17, Fund s. docs/FUNDE.md -
+beide fehlten zunächst in dieser Tabelle, obwohl der Code sie schon
+kannte]. `entfaellt`: Vorgänger einer F3-Korrektur, dessen Geocoding noch
+offen war (§G). `simuliert`: `DRY_RUN_GEOCODE=true`, kein echter
+Nominatim-Aufruf.
 
 Grau (⚪) ist bewusst von Gelb getrennt: Gelb heißt "wir wissen etwas Unsicheres",
 Grau heißt "wir wissen noch nichts". Sales soll graue Zeilen nicht als Problemfall
-behandeln, sondern kurz später erneut schauen.
+behandeln, sondern kurz später erneut schauen. Das gilt auch für `entfaellt`
+(wird nie mehr geprüft, aber nicht wegen eines Datenproblems) und `simuliert`
+(bewusst nicht geprüft, kein echtes Ergebnis vorhanden).
 
 ## C. Zweite Erweiterung: Bundesland → Landesbauordnung [neu, empfohlen]
 
