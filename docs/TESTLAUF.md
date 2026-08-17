@@ -1,8 +1,8 @@
 # Testlauf: Randfälle
 
-Programmatischer Testlauf gegen die echte Datenbank über `scripts/testlauf.py` (POST /submit + direkte DB-Prüfung, kein Mock, kein pytest-Ersatz - die reinen Funktionen bleiben in `tests/core/`). Erstellt am 16.08.2026. Testdaten wurden nach dem Lauf gelöscht (exakt getrackte IDs, kein Muster-Löschen).
+Programmatischer Testlauf gegen die echte Datenbank über `scripts/testlauf.py` (POST /submit + direkte DB-Prüfung, kein Mock, kein pytest-Ersatz - die reinen Funktionen bleiben in `tests/core/`). Erstellt am 18.08.2026. Testdaten wurden nach dem Lauf gelöscht (exakt getrackte IDs, kein Muster-Löschen).
 
-**Ergebnis: 40/40 Fälle wie erwartet.** Keine Abweichungen.
+**Ergebnis: 40/41 Fälle wie erwartet.** 1 Abweichung(en), s. unten.
 
 Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repariert - das ist zur Entscheidung vorgelegt, s. "Abweichungen" am Ende.
 
@@ -12,25 +12,25 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 **Erwartet:** Beide Requests 303; genau 1 Lead-Zeile für den Token; Event- und email_attempts-Zahl nach dem zweiten Request unverändert (kein zweiter Insert, kein zweiter Mailversuch).
 
-**Tatsächlich:** Request 1: 303, Request 2: 303; Zeilen für Token: 1; Events nach 1.: 2, nach 2.: 2; email_attempts nach 2.: 0
+**Tatsächlich:** Request 1: 303, Request 2: 303; Zeilen für Token: 1; Events nach 1.: 2, nach 2.: 2; email_attempts nach 2.: 1
 
 ### ✅ F2 Duplikat (identischer Inhalt, neuer Token)
 
 **Erwartet:** 2 eigenständige Zeilen; Original bleibt status='neu'; Duplikat hat status='duplikat' und duplicate_of=Original-ID; Original bekommt Event 'erneut_angefragt'; beide durchlaufen den Mail-Versuch, anders als F1 (Konzept §4: F2 -> Mail ja) - geprüft über 'mail_gesendet' ODER 'mail_fehlgeschlagen', da ein gemeinsames Tageslimit (usage_counters) bei intensivem Testen am selben Tag einen erfolgreichen Versand in einen regulären Fehlschlag verwandeln kann, ohne dass das ein Bug ist.
 
-**Tatsächlich:** lead1.status='neu', lead2.status='duplikat', lead2.duplicate_of==2646d4d4-41ae-431f-ad03-70a0f1db0a94 (erwartet 2646d4d4-41ae-431f-ad03-70a0f1db0a94); erneut_angefragt auf Original: True; beide mit Mail-Versuch-Event: True (lead1: ['erstellt', 'mail_fehlgeschlagen', 'erneut_angefragt'], lead2: ['erstellt', 'mail_fehlgeschlagen'])
+**Tatsächlich:** lead1.status='neu', lead2.status='duplikat', lead2.duplicate_of==7cd18873-836f-4110-85b2-584f00b2e70c (erwartet 7cd18873-836f-4110-85b2-584f00b2e70c); erneut_angefragt auf Original: True; beide mit Mail-Versuch-Event: True (lead1: ['erstellt', 'mail_gesendet', 'erneut_angefragt'], lead2: ['erstellt', 'mail_gesendet'])
 
 ### ✅ F4 Kontakt bekannt (Person matcht, Adresse nicht)
 
 **Erwartet:** 2 unabhängige aktive Leads (kein duplicate_of/superseded_by auf beiden Seiten); neuer Lead bekommt Event 'kontakt_bekannt' mit bekannter_lead_id == Original-ID; Original bleibt unangetastet.
 
-**Tatsächlich:** lead1.status='neu' superseded_by=None; lead2.status='neu' duplicate_of=None; kontakt_bekannt-Events auf lead2: 1, payload={'bekannter_lead_id': '36d76c1d-18c1-42c7-80c0-56e55b6a1609'}
+**Tatsächlich:** lead1.status='neu' superseded_by=None; lead2.status='neu' duplicate_of=None; kontakt_bekannt-Events auf lead2: 1, payload={'bekannter_lead_id': 'b61df872-2bb9-4d8c-af34-af43a2d15a77'}
 
 ### ✅ F3 Kette Schritt 1->2 (Feld-Merge + R17-Vererbung)
 
 **Erwartet:** T2.phone_raw='0170 2222222' (Konflikt, neu gewinnt), T2.message='Erste Nachricht' (Lücke, von T1 übernommen), T2.postal_code='20095'; T1.status='ersetzt', T1.superseded_by=T2.id; T2 erbt status='kontaktiert' und assigned_to='testlauf-anna' von T1 (R17).
 
-**Tatsächlich:** T2.phone_raw='0170 2222222' message='Erste Nachricht' postal_code='20095' status='kontaktiert' assigned_to='testlauf-anna'; T1.status='ersetzt' superseded_by=7c74ad56-ae1a-4623-8585-4e08637d743f
+**Tatsächlich:** T2.phone_raw='0170 2222222' message='Erste Nachricht' postal_code='20095' status='kontaktiert' assigned_to='testlauf-anna'; T1.status='ersetzt' superseded_by=696c1eab-0872-4a4a-8ca8-3cb90dba39a5
 
 **Hinweis:** T1 vor Korrektur: status='kontaktiert' assigned_to='testlauf-anna'
 
@@ -38,7 +38,7 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 **Erwartet:** T3.phone_raw='0170 2222222' (Lücke, von T2 geerbt - nicht von T1), T3.postal_code='20095' (Lücke, von T2 geerbt), T3.message='Dritte Nachricht' (Konflikt gegen T2s geerbten Wert, neu gewinnt); T2.status='ersetzt', T2.superseded_by=T3.id (Kandidaten-suche findet den AKTUELLEN Vorgänger T2, nicht den ursprünglichen T1).
 
-**Tatsächlich:** T3.phone_raw='0170 2222222' postal_code='20095' message='Dritte Nachricht'; T2.status='ersetzt' superseded_by=02d55663-28ba-4cc3-b14b-4cf1746d8fa7
+**Tatsächlich:** T3.phone_raw='0170 2222222' postal_code='20095' message='Dritte Nachricht'; T2.status='ersetzt' superseded_by=933263a4-d0b0-4d7e-ab64-ce5303e87b49
 
 ## Spam
 
@@ -112,11 +112,11 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 **Tatsächlich:** HTTP 422; Fehlermeldung vorhanden: True; Lead angelegt: False
 
-### ✅ heard_about='TikTok-Anzeige' (nicht in Optionsliste)
+### ⚠️ heard_about='TikTok-Anzeige' (nicht in Optionsliste)
 
 **Erwartet:** validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS (anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz - Fund für Marco.
 
-**Tatsächlich:** HTTP 303; heard_about='TikTok-Anzeige', channel='sonstiges', channel_source='selbstauskunft'
+**Tatsächlich:** HTTP 303; heard_about=None, channel='direkt', channel_source='keine'
 
 **Hinweis:** FUND: heard_about wird serverseitig gar nicht validiert (s. app/core/validation.py) - im Gegensatz zu contact_time_preference. Nicht selbst repariert.
 
@@ -268,6 +268,14 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 **Tatsächlich:** HTTP 303; channel='direkt', channel_source='keine'
 
-## Sonstige Funde (Verhalten wie erwartet, aber bemerkenswert)
+## Geocoding
 
-- **Auswahlfelder / heard_about='TikTok-Anzeige' (nicht in Optionsliste)** — FUND: heard_about wird serverseitig gar nicht validiert (s. app/core/validation.py) - im Gegensatz zu contact_time_preference. Nicht selbst repariert.
+### ✅ nur_ort-Rückfall: Am Mühlenteich 7, Groß Grönau
+
+**Erwartet:** Straße nicht in OpenStreetMap erfasst (docs/FUNDE.md), Ortsebene-Rückfall greift -> geocode_status='nur_ort', geo_state='Schleswig-Holstein', traffic_light='gelb'.
+
+**Tatsächlich:** geocode_status='nur_ort', geo_state='Schleswig-Holstein', traffic_light='gelb', traffic_light_reason='Ort bestätigt, Straße nicht in der Karte gefunden'
+
+## Abweichungen (zur Entscheidung, nicht selbst repariert)
+
+- **Auswahlfelder / heard_about='TikTok-Anzeige' (nicht in Optionsliste)** — erwartet: validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS (anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz - Fund für Marco. — tatsächlich: HTTP 303; heard_about=None, channel='direkt', channel_source='keine'

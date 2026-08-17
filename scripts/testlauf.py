@@ -10,6 +10,7 @@ kein Muster-Löschen).
 Aufruf: zuerst `uvicorn app.main:app --port 8731` in einem zweiten
 Terminal, dann `PYTHONPATH=. .venv/bin/python scripts/testlauf.py`.
 """
+import os
 import sys
 import time
 import uuid
@@ -25,6 +26,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from psycopg.rows import dict_row  # noqa: E402
 
 from app.core.channel import derive_channel  # noqa: E402
+from app.core.edit_token import generate_edit_token  # noqa: E402
 from app.core.normalize import normalize_name, normalize_phone  # noqa: E402
 from app.db import get_connection  # noqa: E402
 
@@ -739,6 +741,297 @@ def test_kanal_ableitung():
     _kanal_case("Stufe 6: nichts von alledem -> direkt")
 
 
+# --- 10. Geocoding, Retry, Korrekturfenster, Korrektur-Link (Phase 5) -----
+# Anders als die Fälle oben: diese brauchen einen echten Retry-Lauf (echte
+# Nominatim-/Brevo-Aufrufe unter DRY_RUN_EMAIL) - process_after wird direkt
+# in der DB vorgezogen statt eine Stunde zu warten (Konzept §G, dieselbe
+# Wirkung wie PROCESS_DELAY_MINUTES=0).
+
+
+def _verify_address_free(street: str, city: str) -> None:
+    """Sicherheitsnetz nach dem Vorfall vom 17.08.: ein Testlauf, der eine
+    Straße+Ort-Kombination verwendet, die bereits ein ECHTER (nicht per
+    'testlauf-%' erkennbarer) Lead trägt, wird von persist_submission()
+    als F3-Korrektur behandelt - der echte Lead wird stillschweigend mit
+    Fake-Testdaten überschrieben, exakt dieselbe Prüfung wie
+    app/submission.py::_find_dedup_candidate(). Genau das geschah mit dem
+    echten "Am Mühlenteich 7, Groß Grönau"-Beispiellead (eine der fünf
+    Aufgaben-Beispieladressen) - wieder hergestellt, aber nicht nochmal
+    riskieren. Bricht hart ab statt eine Kollision einzugehen."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, email FROM leads
+            WHERE status NOT IN ('duplikat', 'ersetzt', 'spam')
+              AND email NOT ILIKE 'testlauf-%%'
+              AND lower(trim(street)) = %(street_norm)s AND lower(trim(city)) = %(city_norm)s
+            LIMIT 1
+            """,
+            {"street_norm": street.strip().lower(), "city_norm": city.strip().lower()},
+        ).fetchone()
+    if row is not None:
+        raise RuntimeError(
+            f"SICHERHEITSABBRUCH: Adresse {street!r}/{city!r} matcht einen bereits "
+            f"vorhandenen, echten Lead ({row[1]}, id={row[0]}) - ein Testlauf würde "
+            f"das als F3-Korrektur fehlinterpretieren und den echten Lead überschreiben "
+            f"(genau der Vorfall vom 17.08. mit Groß Grönau). Testadresse in diesem "
+            f"Skript ändern, nicht diese Prüfung entfernen."
+        )
+
+
+def _force_process_after_now(lead_id) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE leads SET process_after = now() WHERE id = %(id)s", {"id": str(lead_id)})
+
+
+def _trigger_retry() -> dict:
+    resp = httpx.post(
+        f"{BASE_URL}/admin/retry", headers={"X-Retry-Secret": os.environ["RETRY_SECRET"]}, timeout=30
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def test_geocode_nur_ort_gross_groenau():
+    # Gleicher Ort wie der echte Beispiellead (lead_nummer 15), aber eine
+    # eindeutig erfundene Straße statt "Am Mühlenteich 7" - sonst matcht
+    # _find_dedup_candidate() über Straße+Ort und behandelt diesen Testlauf
+    # als F3-Korrektur des echten Leads (Vorfall 17.08., s. docs/FUNDE.md).
+    street, city = "Phantomweg 123", "Groß Grönau"
+    _verify_address_free(street, city)
+    token = str(uuid.uuid4())
+    data = default_form(
+        submission_token=token,
+        email=f"testlauf-nurort-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city,
+    )
+    _, lead = submit_and_get(data)
+    _force_process_after_now(lead["id"])
+    _trigger_retry()
+    lead_final = db_fetch(lead["id"])
+
+    expected = (
+        "Erfundene Straße in einem real auflösbaren Ort -> Ortsebene-"
+        "Rückfall greift -> geocode_status='nur_ort', geo_state="
+        "'Schleswig-Holstein', traffic_light='gelb'."
+    )
+    actual = (
+        f"geocode_status={lead_final['geocode_status']!r}, geo_state={lead_final['geo_state']!r}, "
+        f"traffic_light={lead_final['traffic_light']!r}, traffic_light_reason={lead_final['traffic_light_reason']!r}"
+    )
+    match = (
+        lead_final["geocode_status"] == "nur_ort"
+        and lead_final["geo_state"] == "Schleswig-Holstein"
+        and lead_final["traffic_light"] == "gelb"
+    )
+    record("Geocoding", "nur_ort-Rückfall: erfundene Straße in Groß Grönau", expected, actual, match)
+
+
+def test_geocode_ausland_wien():
+    # Bewusst OHNE postal_code: "1010" (vierstellig, österreichisch) würde
+    # an validate_submission()s 5-stelligem PLZ-Format scheitern (422) -
+    # ein eigener Fund (s. docs/TESTLAUF.md): eine reale ausländische PLZ
+    # kann im aktuellen Formular gar nicht eingegeben werden, nur weggelassen.
+    street, city = "Stephansplatz 1", "Wien"
+    _verify_address_free(street, city)
+    token = str(uuid.uuid4())
+    data = default_form(
+        submission_token=token,
+        email=f"testlauf-ausland-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city,
+    )
+    _, lead = submit_and_get(data)
+    _force_process_after_now(lead["id"])
+    _trigger_retry()
+    lead_nach_geocoding = db_fetch(lead["id"])
+    # Zweiter Lauf: die Auslandsmail wurde beim ersten Retry erst auf
+    # 'offen' gesetzt (Konzept §A), braucht denselben process_after-Trick
+    # nochmal, um sie im selben Testlauf ohne Wartezeit zu erreichen.
+    _force_process_after_now(lead["id"])
+    _trigger_retry()
+    lead_final = db_fetch(lead["id"])
+
+    expected = (
+        "Wien ohne countrycodes=de auffindbar (docs/FUNDE.md) -> status="
+        "'ausland', in_service_area=False, geo_country='AT', traffic_light="
+        "'rot'; zweiter Retry-Lauf verarbeitet ausland_hinweis_status "
+        "offen -> simuliert (DRY_RUN_EMAIL)."
+    )
+    actual = (
+        f"nach 1. Retry: status={lead_nach_geocoding['status']!r}, in_service_area={lead_nach_geocoding['in_service_area']}, "
+        f"geo_country={lead_nach_geocoding['geo_country']!r}, traffic_light={lead_nach_geocoding['traffic_light']!r}; "
+        f"nach 2. Retry: ausland_hinweis_status={lead_final['ausland_hinweis_status']!r}"
+    )
+    match = (
+        lead_nach_geocoding["status"] == "ausland"
+        and lead_nach_geocoding["in_service_area"] is False
+        and lead_nach_geocoding["geo_country"] == "AT"
+        and lead_nach_geocoding["traffic_light"] == "rot"
+        and lead_final["ausland_hinweis_status"] in ("simuliert", "gesendet")
+    )
+    record("Geocoding", "Auslandspfad: Stephansplatz 1, Wien (Konzept §A)", expected, actual, match)
+
+
+def test_geocode_lindenweg_neustadt_aufgabenbeispiel():
+    # ACHTUNG: "Lindenweg 3, Neustadt" ist eine der fünf echten Aufgaben-
+    # Beispieladressen (lead_nummer 13) - _verify_address_free() lässt
+    # diesen Test bewusst mit einem klaren Fehler abbrechen, solange dieser
+    # Lead noch aktiv ist, statt ihn zu überschreiben. Erst nach Marcos
+    # eigener Abnahme dieses Beispiels (oder wenn er ihn absichtlich
+    # umbenennt) hier erneut laufen lassen.
+    street, city = "Lindenweg 3", "Neustadt"  # keine PLZ, wie im Aufgabenbeispiel
+    _verify_address_free(street, city)
+    token = str(uuid.uuid4())
+    data = default_form(
+        submission_token=token,
+        email=f"testlauf-lindenweg-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city,
+    )
+    _, lead = submit_and_get(data)
+    _force_process_after_now(lead["id"])
+    _trigger_retry()
+    lead_final = db_fetch(lead["id"])
+
+    expected = (
+        "Aufgabenbeispiel ohne PLZ: mit dem strengen Ortsnamen-Abgleich "
+        "(docs/FUNDE.md, mit Marco abgestimmt) 'nicht_gefunden', NICHT mehr "
+        "'mehrdeutig' wie vor der Korrektur - keiner von Nominatims "
+        "Kandidaten heißt exakt 'Neustadt' (sondern z.B. 'Neustadt im "
+        "Schwarzwald'). Bewusste, abgestimmte Verhaltensänderung, keine "
+        "Abweichung."
+    )
+    actual = f"geocode_status={lead_final['geocode_status']!r}, traffic_light={lead_final['traffic_light']!r}"
+    match = lead_final["geocode_status"] == "nicht_gefunden" and lead_final["traffic_light"] == "rot"
+    record("Geocoding", "Aufgabenbeispiel Lindenweg 3, Neustadt (Verhalten geändert, mit Marco abgestimmt)", expected, actual, match)
+
+
+def test_ampel_ohne_telefon():
+    # Bewusst NICHT "Osterstraße 88, Hamburg" (das ist lead_nummer 14, eine
+    # der fünf echten Aufgaben-Beispieladressen) - andere, unbenutzte
+    # Adresse, kein PLZ-Rateversuch (falsch geratene PLZ würde jetzt
+    # geocode_status='plz_abweichend' statt 'ok' ergeben und den Testfall
+    # verfälschen, s. docs/FUNDE.md).
+    street, city = "Grüner Weg 12", "Leipzig"
+    _verify_address_free(street, city)
+    token = str(uuid.uuid4())
+    data = default_form(
+        submission_token=token,
+        email=f"testlauf-ohnetelefon-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city,  # phone bewusst weggelassen
+    )
+    _, lead = submit_and_get(data)
+    _force_process_after_now(lead["id"])
+    _trigger_retry()
+    lead_final = db_fetch(lead["id"])
+
+    expected = (
+        "Vollständig geokodete Adresse, aber kein Telefon angegeben -> "
+        "Ampel gelb 'Nur per E-Mail erreichbar' (Konzept §B)."
+    )
+    actual = (
+        f"geocode_status={lead_final['geocode_status']!r}, traffic_light={lead_final['traffic_light']!r}, "
+        f"traffic_light_reason={lead_final['traffic_light_reason']!r}"
+    )
+    match = (
+        lead_final["geocode_status"] == "ok"
+        and lead_final["traffic_light"] == "gelb"
+        and lead_final["traffic_light_reason"] == "Nur per E-Mail erreichbar"
+    )
+    record("Ampel", "Ohne Telefon -> gelb 'Nur per E-Mail erreichbar'", expected, actual, match)
+
+
+def test_korrekturfenster_entfaellt():
+    street, city = "Korrekturfensterweg 1", "Hamburg"
+    _verify_address_free(street, city)
+    token1 = str(uuid.uuid4())
+    data1 = default_form(
+        submission_token=token1,
+        email=f"testlauf-fenster-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city, phone="0170 4000001",
+    )
+    _, lead1 = submit_and_get(data1)
+    # Bewusst KEIN _force_process_after_now: der Vorgänger soll bei der
+    # Korrektur noch geocode_status='offen' sein, wie im echten 1h-Fenster
+    # (Konzept §G) - genau der Fall, den die Korrektur abfangen soll.
+
+    token2 = str(uuid.uuid4())
+    data2 = default_form(
+        submission_token=token2,
+        email=f"testlauf-fenster-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city, phone="0170 4000001",  # gleiches Telefon -> F3-Match über die Person
+        message="Korrektur innerhalb des Fensters",
+    )
+    _, lead2 = submit_and_get(data2)
+    lead1_nach_korrektur = db_fetch(lead1["id"])
+
+    expected = (
+        "F3-Korrektur innerhalb des 1h-Fensters: Vorgänger (noch "
+        "geocode_status='offen') wird auf 'entfaellt' gesetzt, seine "
+        "Verarbeitung entfällt (Konzept §G)."
+    )
+    actual = f"lead1.geocode_status nach Korrektur={lead1_nach_korrektur['geocode_status']!r} (vorher 'offen')"
+    match = lead1_nach_korrektur["geocode_status"] == "entfaellt"
+    record("Korrekturfenster", "F3 innerhalb 1h-Fenster setzt Vorgänger auf entfaellt", expected, actual, match)
+
+
+def test_korrektur_link_vorbefuellung():
+    street, city = "Editlinkweg 3", "Editlinkstadt"
+    _verify_address_free(street, city)
+    token = str(uuid.uuid4())
+    email = f"testlauf-editlink-{uuid.uuid4().hex[:6]}@example.com"
+    data = default_form(
+        submission_token=token, email=email,
+        street=street, city=city, name="Editlink Test",
+    )
+    _, lead = submit_and_get(data)
+
+    edit_token = generate_edit_token(str(lead["id"]), os.environ["EDIT_TOKEN_SECRET"])
+    resp = httpx.get(f"{BASE_URL}/?k={edit_token}")
+
+    expected = "GET /?k=<Token> rendert das Formular mit vorbefüllten Werten (Straße, Ort, Name, E-Mail)."
+    vorbefuellt = (
+        "Editlinkweg 3" in resp.text
+        and "Editlinkstadt" in resp.text
+        and "Editlink Test" in resp.text
+        and email in resp.text
+    )
+    actual = f"HTTP {resp.status_code}; alle vier Werte im HTML gefunden: {vorbefuellt}"
+    match = resp.status_code == 200 and vorbefuellt
+    record("Korrektur-Link", "GET /?k=Token befüllt das Formular vor", expected, actual, match)
+
+
+def test_retry_heilung_fehlgeschlagene_mail():
+    street, city = "Heilungsweg 1", "Heilungsstadt"
+    _verify_address_free(street, city)
+    token = str(uuid.uuid4())
+    data = default_form(
+        submission_token=token,
+        email=f"testlauf-heilung-{uuid.uuid4().hex[:6]}@example.com",
+        street=street, city=city,
+    )
+    _, lead = submit_and_get(data)
+
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE leads SET email_status='fehlgeschlagen', email_last_error='künstlicher Testfehler', "
+            "process_after=now() WHERE id=%(id)s",
+            {"id": str(lead["id"])},
+        )
+    _trigger_retry()
+    lead_geheilt = db_fetch(lead["id"])
+
+    expected = (
+        "Künstlich auf 'fehlgeschlagen' gesetzte Mail wird vom Retry erneut "
+        "versucht. Unter DRY_RUN_EMAIL wird sie 'simuliert' statt 'gesendet' "
+        "- ein echter Fehlschlag-und-Erholung-Test mit absichtlich falschen "
+        "Brevo-Zugangsdaten bleibt Marcos manueller Test (nicht mit "
+        "Produktions-Zugangsdaten automatisierbar)."
+    )
+    actual = f"email_status nach Retry={lead_geheilt['email_status']!r} (vorher künstlich 'fehlgeschlagen' gesetzt)"
+    match = lead_geheilt["email_status"] in ("simuliert", "gesendet")
+    record("Retry", "Künstlich fehlgeschlagene Mail wird vom Retry erneut versucht", expected, actual, match)
+
+
 # --- Aufräumen + Report -----------------------------------------------------
 
 
@@ -825,6 +1118,14 @@ def main() -> None:
         print("  .venv/bin/uvicorn app.main:app --port 8731")
         sys.exit(1)
 
+    # Sicherheitsnetz (Fund 17.08., s. docs/FUNDE.md): die meisten Fälle
+    # oben verwenden den gemeinsamen Default "Teststraße 1"/"Teststadt"
+    # (default_form()) ohne eigene Straße/Ort - matcht das bereits ein
+    # echter, nicht-testlauf Lead, würde jeder nachfolgende Testfall als
+    # F3-Korrektur dieser Kette missverstanden. Einmal zentral geprüft statt
+    # in jeder einzelnen der ~15 Funktionen, die den Default nutzen.
+    _verify_address_free("Teststraße 1", "Teststadt")
+
     try:
         test_f1_technische_dopplung()
         test_f2_duplikat()
@@ -852,6 +1153,21 @@ def main() -> None:
         test_lange_eingaben()
         test_sonderzeichen_emoji()
         test_kanal_ableitung()
+
+        # Geocoding/Retry/Korrekturfenster/Korrektur-Link (Phase 5) - echte
+        # Nominatim-/Retry-Aufrufe, deshalb eigene Pausen zusätzlich zur
+        # eingebauten Ratenbegrenzung in app/geocoding.py.
+        test_geocode_nur_ort_gross_groenau()
+        time.sleep(2)
+        test_geocode_ausland_wien()
+        time.sleep(2)
+        test_geocode_lindenweg_neustadt_aufgabenbeispiel()
+        time.sleep(2)
+        test_ampel_ohne_telefon()
+        time.sleep(1)
+        test_korrekturfenster_entfaellt()
+        test_korrektur_link_vorbefuellung()
+        test_retry_heilung_fehlgeschlagene_mail()
     finally:
         report_path = Path(__file__).resolve().parent.parent / "docs" / "TESTLAUF.md"
         write_report(report_path)
