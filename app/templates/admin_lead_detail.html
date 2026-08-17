@@ -196,6 +196,26 @@
     dl.event-payload div { margin-bottom: 0.15rem; }
 
     .empty-hint { color: var(--muted); font-size: 0.9rem; }
+
+    table.candidates-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    table.candidates-table th {
+      text-align: left;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+      padding: 0.4rem 0.5rem;
+      border-bottom: 2px solid var(--border);
+    }
+    table.candidates-table td {
+      padding: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
   </style>
 </head>
 <body>
@@ -236,6 +256,10 @@
     <div class="banner feedback-ok">Mail-Versand ausgelöst — aktueller Status unten bei "Bestätigungsmail".</div>
     {% elif aktion_feedback == "mail_fehler" %}
     <div class="banner feedback-error">Mail-Versand fehlgeschlagen — Fehlerdetails im Server-Log.</div>
+    {% elif aktion_feedback == "geocoding" %}
+    <div class="banner {{ 'feedback-ok' if ergebnis in ('ok', 'simuliert') else 'feedback-error' if ergebnis in ('fehlgeschlagen', 'fehler', 'ratenlimit') else '' }}">
+      Geocoding-Ergebnis: {{ status_label(ergebnis) }} — Details unten bei "Geocoding".
+    </div>
     {% endif %}
 
     <div class="card message-card">
@@ -269,6 +293,10 @@
         <button type="submit">Bestätigungsmail erneut senden</button>
         <p class="hint">Aktueller Mail-Status: {{ email_status_display }}. Bei Spam-Verdacht wird nie gesendet.</p>
       </form>
+      <form method="post" action="/admin/leads/{{ lead_id }}/geocoding-wiederholen" class="resend-form">
+        <button type="submit">Geocoding wiederholen</button>
+        <p class="hint">Aktueller Geocoding-Status: {{ status_label(lead.geocode_status) }}. Läuft unabhängig vom aktuellen Stand — auch bei bereits eindeutigem Ergebnis erneut möglich, respektiert aber das Nominatim-Kontingent (MAX_GEOCODE_PER_MINUTE).</p>
+      </form>
     </div>
 
     {% if ancestors %}
@@ -298,6 +326,27 @@
       </div>
       {% endfor %}
     </div>
+
+    {% if geocode_candidates %}
+    <div class="card">
+      <h2 class="section-title">Mehrdeutige Adresse — {{ geocode_candidates|length }} mögliche Orte</h2>
+      <p class="hint" style="margin: 0 0 0.75rem;">Für ein gezieltes Nachfragen im Gespräch, welcher Ort gemeint ist.</p>
+      <table class="candidates-table">
+        <thead>
+          <tr><th>Bundesland</th><th>Gemeinde</th><th>Nominatim-Bezeichnung</th></tr>
+        </thead>
+        <tbody>
+          {% for kandidat in geocode_candidates %}
+          <tr>
+            <td>{{ kandidat.geo_state or "–" }}</td>
+            <td>{{ kandidat.geo_municipality or "–" }}</td>
+            <td>{{ kandidat.display_name or "–" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
 
     <div class="card">
       <h2 class="section-title">Ereignis-Historie</h2>

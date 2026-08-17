@@ -25,7 +25,6 @@ from app.core.admin_auth import (
     verify_retry_secret,
     verify_session_token,
 )
-from app.core.ampel import ampel as compute_ampel
 from app.core.channel import CHANNEL_LABELS
 from app.core.dedup import DedupCase
 from app.core.display import (
@@ -36,13 +35,14 @@ from app.core.display import (
     format_duration_de,
     status_label,
 )
-from app.core.geocoding import GERMAN_STATES
+from app.core.geocoding import GERMAN_STATES, candidate_summaries
 from app.core.spam import SPAM_REASON_LABELS
 from app.db import get_connection, insert_event
 from app.mail import send_confirmation_email
-from app.retry import run_retry
+from app.retry import retry_one_geocode, run_retry
 from app.submission import NewLeadData, row_to_new_lead_data
 from app.templating import templates
+from app.traffic_light import apply_traffic_light
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +96,10 @@ _HIDDEN_STATUSES = ["duplikat", "ersetzt", "spam", "ausland"]
 # Liste): Ort/Bundesland/Kanal/Status/Zugewiesen werden aus den tatsächlich
 # vorhandenen Werten befüllt (_distinct_values, unten) - "kommt aktuell
 # nicht vor" soll nicht mit "gibt es nicht" verwechselt werden. Ampel ist
-# die eine Ausnahme: keine echte Spalte (traffic_light wird erst mit
-# Block c bei jedem Schreibvorgang befüllt), deshalb hier eine feste,
-# kleine Liste statt einer DISTINCT-Query. 'defekt' bewusst dabei - damit
-# genau die Zeilen, die Punkt 1 auffängt, sich gezielt herausfiltern lassen.
+# die eine Ausnahme: eine feste, kleine Liste statt einer DISTINCT-Query
+# auf traffic_light, damit 'defekt' (Python-only Fallback, nie in der
+# Spalte gespeichert - s. Filterlogik in _fetch_leads) immer als Option
+# erscheint, auch wenn gerade keine defekte Zeile existiert.
 _AMPEL_FARBEN = ["gruen", "gelb", "rot", "grau", "schwarz", "defekt"]
 _AMPEL_FARBE_LABELS_FILTER = {
     "gruen": "Grün", "gelb": "Gelb", "rot": "Rot", "grau": "Grau",
@@ -241,14 +241,6 @@ def dashboard(request: Request):
         leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
         filter_options = _fetch_filter_options(conn)
 
-    # Ampel ist keine gespeicherte Spalte (traffic_light erst mit Block c
-    # befüllt) - der Filter kann deshalb erst NACH dem Dekorieren greifen,
-    # nicht als SQL-WHERE wie die übrigen fünf Spaltenfilter. Bei der
-    # Datenmenge dieses Projekts unproblematisch (s. Kommentar in
-    # _fetch_leads zum LIMIT).
-    if p["ampel_filter"]:
-        leads = [lead for lead in leads if lead["ampel_farbe"] == p["ampel_filter"]]
-
     # Blockweise Tönung nur sinnvoll, wenn gleiche Lead-Nummern auch
     # tatsächlich benachbart stehen - das ist nur im Sortiermodus 'vorgang'
     # garantiert (Marco, 2026-08-17: Layout-Vorschlag 1, "Blockweise
@@ -357,7 +349,7 @@ def _fetch_leads(
     sort_mode: str,
     channel_filter: str | None = None,
     bundesland_filter: str | None = None,
-    ampel_filter: str | None = None,  # hier ungenutzt, greift erst nach dem Dekorieren (dashboard()) - nur Teil von p
+    ampel_filter: str | None = None,
     ort_filter: str | None = None,
     status_filter: str | None = None,
     zugewiesen_filter: str | None = None,
@@ -396,6 +388,17 @@ def _fetch_leads(
         conditions.append("l.geo_state = %(bundesland_filter)s")
         params["bundesland_filter"] = bundesland_filter
 
+    if ampel_filter == "defekt":
+        # 'defekt' wird nie in traffic_light gespeichert (Python-only
+        # Fallback für eine gescheiterte Aufbereitung, s. _defekte_zeile) -
+        # das tatsächliche Signal dafür ist eine fehlende Ampel: entweder
+        # noch nie berechnet, oder ein Schreibpfad hat apply_traffic_light
+        # vergessen (genau das Muster, das Block c verhindern soll).
+        conditions.append("l.traffic_light IS NULL")
+    elif ampel_filter:
+        conditions.append("l.traffic_light = %(ampel_filter)s")
+        params["ampel_filter"] = ampel_filter
+
     if ort_filter:
         conditions.append("l.city = %(ort_filter)s")
         params["ort_filter"] = ort_filter
@@ -425,7 +428,7 @@ def _fetch_leads(
                 l.phone_raw, l.phone_valid, l.postal_code, l.street,
                 l.email, l.is_owner, l.contact_time_preference, l.message,
                 l.contacted_at, l.disqualify_reason, l.privacy_accepted_at,
-                l.duplicate_of, l.superseded_by,
+                l.duplicate_of, l.superseded_by, l.traffic_light, l.traffic_light_reason,
                 (
                     SELECT o.created_at FROM leads o WHERE o.id = l.duplicate_of
                 ) AS duplicate_of_created_at,
@@ -451,12 +454,6 @@ def _fetch_leads(
             ORDER BY {order_sql}
             LIMIT 500
             """,
-            # Der Ampel-Filter (dashboard()) greift NACH diesem LIMIT, da
-            # Ampel keine gespeicherte Spalte ist - ein Treffer jenseits der
-            # ersten 500 sortierten Zeilen würde ihn verpassen. Bei der
-            # Datenmenge dieses Projekts (aktuell < 50 Leads) nicht
-            # relevant; Block c (traffic_light als echte Spalte) würde das
-            # sauber auflösen.
             params,
         )
         return cur.fetchall()
@@ -531,18 +528,17 @@ def _fetch_vorgang_positions(conn: psycopg.Connection, lead_nummern: list[int]) 
 
 
 def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
-    result = compute_ampel(
-        is_spam=row["is_spam"],
-        spam_reason=row["spam_reason"],
-        in_service_area=row["in_service_area"],
-        geocode_status=row["geocode_status"],
-        geo_state=row["geo_state"],
-        geo_country=row["geo_country"],
-        geocode_candidate_count=None,  # aus geocode_raw gelesen erst mit Block d (Detailansicht/Liste noch nicht verdrahtet)
-        phone_raw=row["phone_raw"],
-        phone_valid=row["phone_valid"],
-        postal_code=row["postal_code"],
-    )
+    # Block c: traffic_light/traffic_light_reason werden bei jedem
+    # Schreibvorgang berechnet (app/traffic_light.py), hier nur noch
+    # gelesen statt bei jedem Aufruf neu über ampel() berechnet. Fehlt der
+    # Wert (sollte nach Block c nie mehr vorkommen), wird das laut
+    # geworfen statt geraten - _decorate_row_safe() fängt das ab und zeigt
+    # die Zeile als "defekt" statt sie stillschweigend falsch/leer
+    # darzustellen (dasselbe Prinzip wie beim geocode_status='simuliert'-
+    # Fund, s. docs/FUNDE.md: ein vergessener Schreibpfad muss sichtbar
+    # werden, nicht in einer Live-Neuberechnung verschwinden).
+    if row["traffic_light"] is None:
+        raise ValueError(f"traffic_light fehlt für Lead {row['id']} - ein Schreibpfad hat sie nicht aktualisiert")
 
     status_display = status_label(row["status"])
     if vorgang_position and vorgang_position[1] > 1:
@@ -584,8 +580,8 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
         **row,
         "created_at_display": format_berlin_datetime(row["created_at"]),
         "status_display": status_display,
-        "ampel_farbe": result.farbe,
-        "ampel_grund": result.grund,
+        "ampel_farbe": row["traffic_light"],
+        "ampel_grund": row["traffic_light_reason"],
         "badges": badges,
         "row_inaktiv": row["status"] in _INAKTIVE_STATUSWERTE,
         "zeile_defekt": False,
@@ -656,9 +652,6 @@ def export_leads_csv(request: Request):
         rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k != "sort_explicit"})
         positions = _fetch_vorgang_positions(conn, [r["lead_nummer"] for r in rows if r["lead_nummer"] is not None])
         leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
-
-    if p["ampel_filter"]:  # s. Kommentar in dashboard() - keine echte Spalte, Filter greift erst hier
-        leads = [lead for lead in leads if lead["ampel_farbe"] == p["ampel_filter"]]
 
     buffer = io.StringIO()
     # Excel (Deutschland) erwartet Semikolon als Trennzeichen (CLAUDE.md
@@ -803,6 +796,8 @@ def lead_detail(request: Request, lead_id: str):
     context = _build_detail_context(row, ancestors, events, duplicate_of_row, superseded_by_row)
     context["username"] = admin_username
     context["aktion_feedback"] = request.query_params.get("aktion")
+    context["ergebnis"] = request.query_params.get("ergebnis")
+    context["status_label"] = status_label
     return templates.TemplateResponse(request=request, name="admin_lead_detail.html", context=context)
 
 
@@ -878,16 +873,31 @@ def _dt(value) -> str:
     return format_berlin_datetime(value) if value is not None else "–"
 
 
+def _geocode_candidates_for_display(row: dict) -> list[dict] | None:
+    """Kandidaten mit Bundesland/Gemeinde für die Detailansicht (Block d) -
+    nur bei geocode_status='mehrdeutig' und nur, wenn geocode_raw die
+    rohen Nominatim-Ergebnisse enthält (ältere/simulierte/fehlgeschlagene
+    Zeilen haben das nicht). None statt leerer Liste, wenn es nichts zu
+    zeigen gibt - das Template unterscheidet damit "keine Kandidaten-
+    Sektion nötig" von "Sektion da, aber zufällig leer"."""
+    if row["geocode_status"] != "mehrdeutig":
+        return None
+    raw = row["geocode_raw"]
+    if not raw or not raw.get("results"):
+        return None
+    return candidate_summaries(raw["results"])
+
+
 def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
     """Alle Lead-Spalten außer message/duplicate_of/superseded_by/
     traffic_light(_reason)/status/assigned_to/disqualify_reason/
     contacted_at - message steht prominent oben, duplicate_of/superseded_by
-    als Banner, traffic_light wird live über app.core.ampel berechnet statt
-    der (vor Phase 4 ohnehin leeren) Cache-Spalte gezeigt, und die
-    Bearbeitungsfelder stehen als eigenes editierbares Formular (Aktionen)
-    statt in dieser reinen Anzeige-Liste. "Alle Felder, auch leere" (Marco,
-    2026-08-16): jede Zeile erscheint immer, mit "–" statt Auslassung wenn
-    leer."""
+    als Banner, traffic_light/traffic_light_reason stehen eigens oben in der
+    Kopfzeile (ampel_farbe/ampel_grund im Kontext, s. _build_detail_context)
+    statt hier nochmal in der Feldliste, und die Bearbeitungsfelder stehen
+    als eigenes editierbares Formular (Aktionen) statt in dieser reinen
+    Anzeige-Liste. "Alle Felder, auch leere" (Marco, 2026-08-16): jede
+    Zeile erscheint immer, mit "–" statt Auslassung wenn leer."""
     name_value = row["name"] or "–"
     if row["name_normalized"] and row["name_raw"]:
         name_value += f" (wie eingegeben: {row['name_raw']})"
@@ -983,18 +993,14 @@ def _build_detail_context(
     duplicate_of_row: dict | None,
     superseded_by_row: dict | None,
 ) -> dict:
-    result = compute_ampel(
-        is_spam=row["is_spam"],
-        spam_reason=row["spam_reason"],
-        in_service_area=row["in_service_area"],
-        geocode_status=row["geocode_status"],
-        geo_state=row["geo_state"],
-        geo_country=row["geo_country"],
-        geocode_candidate_count=None,
-        phone_raw=row["phone_raw"],
-        phone_valid=row["phone_valid"],
-        postal_code=row["postal_code"],
-    )
+    # Block c: wie _decorate_row() - lesen statt live neu berechnen.
+    # Fehlender Wert wird hier NICHT abgefangen (anders als in der Liste):
+    # eine einzelne Detailansicht darf im Fehlerfall ruhig mit einem
+    # geloggten 500er scheitern, das reißt keine anderen Zeilen mit (der
+    # Grund, warum die Isolierung aus Punkt 1 speziell für die LISTE nötig
+    # war, s. docs/FUNDE.md).
+    if row["traffic_light"] is None:
+        raise ValueError(f"traffic_light fehlt für Lead {row['id']} - ein Schreibpfad hat sie nicht aktualisiert")
 
     ancestors_display = [
         {
@@ -1025,10 +1031,11 @@ def _build_detail_context(
         "status_display": status_label(row["status"]),
         "contacted_at_display": _dt(row["contacted_at"]),
         "email_status_display": status_label(row["email_status"]),
-        "ampel_farbe": result.farbe,
-        "ampel_grund": result.grund,
+        "ampel_farbe": row["traffic_light"],
+        "ampel_grund": row["traffic_light_reason"],
         "message": row["message"],
         "field_groups": _field_groups(row),
+        "geocode_candidates": _geocode_candidates_for_display(row),
         "ancestors": ancestors_display,
         "events": events_display,
         "duplicate_of_row": duplicate_of_row,
@@ -1038,10 +1045,6 @@ def _build_detail_context(
 
 
 # --- Aktionen (Konzept §6) -------------------------------------------------
-# Dashboard-Buttons "Geocoding erneut" (einzeln) / globaler Retry-Button
-# bewusst noch nicht gebaut - das ist Phase 4 Block (d). POST /admin/retry
-# (unten, Block b) existiert bereits als Backend-Endpunkt und ist schon
-# heute per curl/GitHub-Actions-Cron nutzbar.
 
 
 @router.post("/leads/{lead_id}/bearbeitung")
@@ -1104,6 +1107,12 @@ def update_lead_bearbeitung(
 
         if updates:
             _update_lead(conn, lead_id, updates)
+            # Block c: is_spam/spam_reason können sich hier geändert haben
+            # (manueller Statuswechsel ODER Spam-Freigabe/-Markierung,
+            # Konzept §J) - unbedingt statt nur bei is_spam/spam_reason in
+            # updates, damit ein künftig neu hinzugefügtes ampel-relevantes
+            # Feld hier nicht separat vergessen werden kann.
+            apply_traffic_light(conn, lead_id)
 
     return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion=gespeichert", status_code=303)
 
@@ -1134,6 +1143,26 @@ def resend_lead_mail(request: Request, lead_id: str):
         aktion = "mail_fehler"
 
     return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion={aktion}", status_code=303)
+
+
+@router.post("/leads/{lead_id}/geocoding-wiederholen")
+def retry_lead_geocoding(request: Request, lead_id: str):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    try:
+        ergebnis = retry_one_geocode(lead_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+    except Exception:
+        # Wie beim Mail-Resend: retry_one_geocode() fängt anzunehmende
+        # Nominatim-/Netzwerkfehler schon selbst ab (landet dann auf
+        # "fehlgeschlagen"), dieser Fang ist nur das Netz für alles andere.
+        logger.exception("Manuelles Geocoding-Retry fehlgeschlagen für Lead %s", lead_id)
+        ergebnis = "fehler"
+
+    return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion=geocoding&ergebnis={ergebnis}", status_code=303)
 
 
 def _update_lead(conn: psycopg.Connection, lead_id: str, updates: dict) -> None:

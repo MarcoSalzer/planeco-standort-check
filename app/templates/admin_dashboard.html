@@ -179,20 +179,30 @@
       border: 1px solid var(--border);
       border-radius: 0.5rem;
     }
-    .export-row a.button-primary {
+    .export-row a.button-primary,
+    .export-row button.button-primary {
       display: inline-block;
       min-height: 42px;
       line-height: 42px;
       padding: 0 1.1rem;
       background: var(--focus);
       color: #fff;
+      border: none;
       border-radius: 0.4rem;
+      font-family: inherit;
+      font-size: 1rem;
       font-weight: 600;
       text-decoration: none;
       white-space: nowrap;
+      cursor: pointer;
     }
-    .export-row a.button-primary:hover {
+    .export-row a.button-primary:hover,
+    .export-row button.button-primary:hover {
       opacity: 0.9;
+    }
+    .export-row button.button-primary:disabled {
+      opacity: 0.6;
+      cursor: default;
     }
     .export-row .hint {
       color: var(--muted);
@@ -395,6 +405,11 @@
       <span class="hint">Enthält den aktuellen Filter und die Suche — nicht immer alle Leads.</span>
     </div>
 
+    <div class="export-row">
+      <button type="button" class="button-primary" id="globaler-retry-btn">Retry jetzt ausführen (Geocoding + Mail)</button>
+      <span class="hint" id="globaler-retry-status">Verarbeitet liegen gebliebenes Geocoding und fehlgeschlagene Mails (läuft sonst automatisch alle 15 Minuten).</span>
+    </div>
+
     {% if leads %}
     <div class="table-wrap">
       <table class="leads">
@@ -523,5 +538,39 @@
     </div>
     {% endif %}
   </main>
+  <script>
+    (function () {
+      var btn = document.getElementById('globaler-retry-btn');
+      var status = document.getElementById('globaler-retry-status');
+      var defaultText = status.textContent;
+      var defaultLabel = btn.textContent;
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        btn.textContent = 'Läuft…';
+        status.textContent = defaultText;
+        fetch('/admin/retry', { method: 'POST', credentials: 'same-origin' })
+          .then(function (antwort) {
+            if (!antwort.ok) { throw new Error('HTTP ' + antwort.status); }
+            return antwort.json();
+          })
+          .then(function (daten) {
+            // Zeigt verarbeitet UND verbleibend (nicht nur eine Erfolgs-
+            // meldung, Marco 2026-08-17) - genau die Felder aus der
+            // /admin/retry-Antwort (app/retry.py::run_retry).
+            status.textContent =
+              'Geocoding: ' + daten.geocoding.verarbeitet + ' verarbeitet, ' + daten.geocoding.verbleibend + ' verbleibend. ' +
+              'Mail: ' + daten.mail.verarbeitet + ' verarbeitet, ' + daten.mail.verbleibend + ' verbleibend. ' +
+              '(Seite neu laden, um aktualisierte Ampeln zu sehen.)';
+          })
+          .catch(function (fehler) {
+            status.textContent = 'Fehler beim Retry-Aufruf: ' + fehler.message;
+          })
+          .finally(function () {
+            btn.disabled = false;
+            btn.textContent = defaultLabel;
+          });
+      });
+    })();
+  </script>
 </body>
 </html>

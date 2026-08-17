@@ -31,6 +31,7 @@ from app.db import get_connection, insert_event
 from app.geocoding import geocode
 from app.mail import send_confirmation_email
 from app.submission import NewLeadData, row_to_new_lead_data
+from app.traffic_light import apply_traffic_light
 
 logger = logging.getLogger(__name__)
 dry_run_logger = logging.getLogger("app.retry.dry_run")
@@ -60,6 +61,28 @@ def run_retry(*, base_url: str) -> dict:
         "geocoding": _retry_geocoding(),
         "mail": _retry_mail(base_url=base_url),
     }
+
+
+def retry_one_geocode(lead_id: str) -> str:
+    """Für den Button "Geocoding wiederholen" bei einem einzelnen Lead
+    (Block d) - anders als der Batch-Lauf IMMER versucht, unabhängig vom
+    aktuellen geocode_status (eine bewusste manuelle Wiederholung, kein
+    automatischer Sweep über noch offene Fälle). Respektiert trotzdem
+    MAX_GEOCODE_PER_MINUTE/DRY_RUN_GEOCODE wie der Batch-Lauf - Nominatims
+    Limit gilt unabhängig vom Auslöser. Gibt "ratenlimit" statt None
+    zurück, wenn das Kontingent für diese Minute erschöpft ist - der
+    Aufrufer (Admin-Route) braucht einen anzeigbaren String, kein
+    Abbruchsignal für eine Schleife wie im Batch-Fall."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, street, postal_code, city FROM leads WHERE id = %(id)s",
+            {"id": lead_id},
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"Lead {lead_id} nicht gefunden.")
+    lead = {"id": row[0], "street": row[1], "postal_code": row[2], "city": row[3]}
+    status = _process_one_geocode(lead)
+    return status if status is not None else "ratenlimit"
 
 
 # --- Geocoding ---------------------------------------------------------
@@ -169,6 +192,7 @@ def _simulate_geocode(conn: psycopg.Connection, lead_id: str, lead: dict) -> str
         {"id": lead_id},
     )
     insert_event(conn, lead_id, "geocodiert", {"status": "simuliert", "dry_run": True})
+    apply_traffic_light(conn, lead_id)  # Block c: nach jeder geocode_status-Änderung
     return "simuliert"
 
 
@@ -183,6 +207,7 @@ def _apply_geocode_result(conn: psycopg.Connection, lead_id: str, result: Geocod
             geo_country = %(geo_country)s, geocode_raw = %(geocode_raw)s,
             in_service_area = %(in_service_area)s,
             geo_state_unresolved = %(geo_state_unresolved)s,
+            geocode_candidate_count = %(candidate_count)s,
             updated_at = now()
         WHERE id = %(lead_id)s
         """,
@@ -194,6 +219,7 @@ def _apply_geocode_result(conn: psycopg.Connection, lead_id: str, result: Geocod
             "geocode_raw": Json(result.raw) if result.raw is not None else None,
             "in_service_area": result.in_service_area,
             "geo_state_unresolved": result.geo_state_unresolved,
+            "candidate_count": result.candidate_count,
             "lead_id": lead_id,
         },
     )
@@ -201,6 +227,7 @@ def _apply_geocode_result(conn: psycopg.Connection, lead_id: str, result: Geocod
         conn, lead_id, "geocodiert",
         {"status": result.status, "candidate_count": result.candidate_count, "ort": result.geo_municipality},
     )
+    apply_traffic_light(conn, lead_id)  # Block c: nach jeder geocode_status-Änderung
 
 
 def _mark_geocode_failed(conn: psycopg.Connection, lead_id: str, *, error: str) -> None:
@@ -213,6 +240,7 @@ def _mark_geocode_failed(conn: psycopg.Connection, lead_id: str, *, error: str) 
         {"id": lead_id},
     )
     insert_event(conn, lead_id, "geocodiert", {"status": "fehlgeschlagen", "fehler": error})
+    apply_traffic_light(conn, lead_id)  # Block c: nach jeder geocode_status-Änderung
 
 
 # --- Mail ----------------------------------------------------------------

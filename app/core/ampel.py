@@ -1,10 +1,13 @@
 """ampel: Ableitung der Bearbeitbarkeits-Ampel für eine Lead-Zeile (Konzept §B).
 
 Reine Funktion ohne DB-/HTTP-Zugriff (CLAUDE.md Regel 5), damit sie per
-Tabellentest über alle Regeln aus §B geprüft werden kann. Wird aktuell nur
-beim Lesen der Lead-Liste aufgerufen (app/admin.py); die im Schema
-vorgesehene Cache-Spalte `traffic_light`/`traffic_light_reason` wird erst
-mit Phase 4 (Geocoding-Schreibpfad) bei jedem INSERT/UPDATE befüllt.
+Tabellentest über alle Regeln aus §B geprüft werden kann. Seit Phase 4
+Block c NICHT mehr beim Lesen aufgerufen, sondern ausschließlich von
+app/traffic_light.py::apply_traffic_light() - einmal bei jedem
+Schreibvorgang, der eine ampel-relevante Spalte ändert (Submit,
+Geocoding-Ergebnis, manueller Statuswechsel, Spam-Freigabe, F3-Korrektur).
+Das Ergebnis landet in den Spalten `traffic_light`/`traffic_light_reason`,
+Liste und Detailansicht lesen nur noch diese Spalten.
 
 Drei Abweichungen von der wörtlichen Regelformulierung in §B, mit Marco
 abgestimmt (2026-08-16/17):

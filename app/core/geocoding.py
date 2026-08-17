@@ -106,6 +106,24 @@ def _extract_geo_country(address: dict) -> str | None:
     return code.upper() if code else None
 
 
+def candidate_summaries(results: list[dict]) -> list[dict]:
+    """Bundesland/Gemeinde je Kandidat aus den rohen Nominatim-Ergebnissen
+    - für die Detailansicht bei mehrdeutigen Treffern (Phase 4 Block d,
+    Marco 2026-08-17: "damit Sales im Gespräch gezielt fragen kann").
+    Nutzt dieselbe Extraktion wie parse_nominatim_results(), aber für ALLE
+    Kandidaten statt nur den Gewinner - deshalb als eigene, öffentliche
+    Funktion statt die private Gewinner-Logik zu verzweigen."""
+    return [
+        {
+            "display_name": r.get("display_name"),
+            "geo_state": _extract_geo_state(r.get("address", {})),
+            "geo_municipality": _extract_geo_municipality(r.get("address", {})),
+            "importance": r.get("importance"),
+        }
+        for r in results
+    ]
+
+
 @dataclass(frozen=True)
 class _Kandidat:
     ergebnis: dict

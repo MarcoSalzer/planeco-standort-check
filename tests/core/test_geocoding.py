@@ -1,6 +1,12 @@
 import pytest
 
-from app.core.geocoding import GERMAN_STATES, ISO_3166_2_TO_STATE, parse_nominatim_results, parse_service_area_states
+from app.core.geocoding import (
+    GERMAN_STATES,
+    ISO_3166_2_TO_STATE,
+    candidate_summaries,
+    parse_nominatim_results,
+    parse_service_area_states,
+)
 
 
 def _result(*, importance=0.5, address=None, lat="53.5510846", lon="9.9936818", **overrides) -> dict:
@@ -125,6 +131,40 @@ def test_unterschiedliche_gemeinde_bei_gleichem_bundesland_ist_auch_mehrdeutig()
     ]
     result = parse_nominatim_results(kandidaten)
     assert result.status == "mehrdeutig"
+
+
+# --- candidate_summaries: Kandidatenliste für die Detailansicht (Block d) --
+
+
+def test_candidate_summaries_je_kandidat_bundesland_und_gemeinde():
+    kandidaten = [
+        _result(
+            display_name="Neustadt im Schwarzwald, Baden-Württemberg",
+            importance=0.4,
+            address={"city": "Neustadt im Schwarzwald", "state": "Baden-Württemberg", "postcode": "79822", "country_code": "de"},
+        ),
+        _result(
+            display_name="Neustadt in Sachsen, Sachsen",
+            importance=0.3,
+            address={"city": "Neustadt in Sachsen", "state": "Sachsen", "postcode": "01844", "country_code": "de"},
+        ),
+    ]
+    summaries = candidate_summaries(kandidaten)
+    assert len(summaries) == 2
+    assert summaries[0] == {
+        "display_name": "Neustadt im Schwarzwald, Baden-Württemberg",
+        "geo_state": "Baden-Württemberg", "geo_municipality": "Neustadt im Schwarzwald", "importance": 0.4,
+    }
+    assert summaries[1]["geo_state"] == "Sachsen"
+
+
+def test_candidate_summaries_leere_liste():
+    assert candidate_summaries([]) == []
+
+
+def test_candidate_summaries_nutzt_denselben_iso_fallback_wie_der_gewinner():
+    kandidaten = [_result(address={"city": "Berlin", "ISO3166-2-lvl4": "DE-BE", "country_code": "de"})]
+    assert candidate_summaries(kandidaten)[0]["geo_state"] == "Berlin"
 
 
 # --- Stadtstaaten-Fund: ISO3166-2-lvl4-Fallback -----------------------------

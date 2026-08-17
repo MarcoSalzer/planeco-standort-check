@@ -20,6 +20,7 @@ from app.core.dedup import DedupCase, ExistingLead, dedup_decision
 from app.core.merge import merge_fields
 from app.core.normalize import normalize_email, normalize_name, normalize_phone
 from app.db import insert_event as _insert_event
+from app.traffic_light import apply_traffic_light
 
 
 @dataclass(frozen=True)
@@ -381,7 +382,13 @@ def _insert_lead(
             "process_after": datetime.now(timezone.utc) + timedelta(minutes=PROCESS_DELAY_MINUTES),
         },
     ).fetchone()
-    return str(row[0])
+    new_id = str(row[0])
+    # Block c: jeder neue Lead bekommt sofort seine Ampel, statt sie erst
+    # beim ersten Lesen zu berechnen (Konzept §B/§F) - hier direkt nach dem
+    # INSERT, damit dieser Pfad garantiert nicht vergessen wird (er ist der
+    # einzige Ort, an dem eine neue Zeile entsteht).
+    apply_traffic_light(conn, new_id)
+    return new_id
 
 
 # Nur diese beiden gelten als "noch nicht abgearbeitet" im Sinne des Retry-
@@ -406,6 +413,10 @@ def _supersede(conn: psycopg.Connection, *, old_id: str, new_id: str) -> None:
         """,
         {"new_id": new_id, "old_id": old_id, "noch_offen": list(_GEOCODE_STATUS_NOCH_OFFEN)},
     )
+    # Block c: geocode_status kann sich hier gerade geändert haben
+    # (-> 'entfaellt'), also auch die Ampel des VORGÄNGERS neu berechnen -
+    # der neue Lead bekommt seine eigene über _insert_lead().
+    apply_traffic_light(conn, old_id)
 
 
 def _log_unexpected_fields(conn: psycopg.Connection, lead_id: str, unexpected_fields: dict[str, str] | None) -> None:
