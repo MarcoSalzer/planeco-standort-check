@@ -261,6 +261,41 @@
     table.leads tr.row-defekt:hover td {
       background: #fbdde2;
     }
+    table.leads tr.row-verlaesst-filter td {
+      background: #fff8e1;
+    }
+
+    select.inline-status,
+    input.inline-assigned {
+      display: block;
+      width: 100%;
+      min-width: 8rem;
+      font-size: 0.85rem;
+      font-family: inherit;
+      padding: 0.3rem 0.4rem;
+      border: 1px solid var(--border);
+      border-radius: 0.3rem;
+      background: #fff;
+      color: var(--text);
+    }
+    input.inline-assigned {
+      min-width: 6rem;
+    }
+    select.inline-status:disabled,
+    input.inline-assigned:disabled {
+      opacity: 0.6;
+    }
+    select.inline-status:focus,
+    input.inline-assigned:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 1px;
+    }
+    .inline-hinweis {
+      font-size: 0.75rem;
+      margin-top: 0.3rem;
+    }
+    .inline-hinweis.warnung { color: var(--dot-gelb); }
+    .inline-hinweis.fehler { color: var(--dot-rot); }
 
     .ampel-legende {
       font-size: 0.82rem;
@@ -508,7 +543,7 @@
             <td>
               <a href="/admin/leads/{{ lead.id }}">{{ lead.name or "(ohne Namen)" }}</a>
               <div class="ampel-mobile">
-                <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span>{{ lead.ampel_grund }}
+                <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span><span class="ampel-grund-text">{{ lead.ampel_grund }}</span>
               </div>
             </td>
             <td>
@@ -518,15 +553,33 @@
             <td>{{ lead.geo_state or "–" }}</td>
             <td class="col-ampel">
               <div class="ampel-cell">
-                <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span>{{ lead.ampel_grund }}
+                <span class="dot {{ lead.ampel_farbe }}" aria-hidden="true"></span><span class="ampel-grund-text">{{ lead.ampel_grund }}</span>
               </div>
             </td>
             <td>
               {{ channel_labels.get(lead.channel, lead.channel) }}
               {% if lead.heard_about %}<div class="muted-sub">Selbstauskunft: {{ lead.heard_about }}</div>{% endif %}
             </td>
-            <td>{{ lead.status_display }}</td>
-            <td>{{ lead.assigned_to or "–" }}</td>
+            <td>
+              {% if not lead.zeile_defekt and lead.status in editierbare_status %}
+              <select class="inline-status" data-lead-id="{{ lead.id }}" data-gespeichert="{{ lead.status }}" aria-label="Status von {{ lead.name or 'Lead ' + (lead.lead_nummer|string) }} ändern">
+                {% for value, label in status_optionen %}
+                <option value="{{ value }}" {{ "selected" if value == lead.status else "" }}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if lead.vorgang_hinweis %}<div class="muted-sub">{{ lead.vorgang_hinweis }}</div>{% endif %}
+              {% else %}
+              {{ lead.status_display }}
+              {% endif %}
+              <div class="inline-hinweis" hidden></div>
+            </td>
+            <td>
+              {% if not lead.zeile_defekt and lead.status in editierbare_status %}
+              <input type="text" class="inline-assigned" data-lead-id="{{ lead.id }}" data-gespeichert="{{ lead.assigned_to or '' }}" value="{{ lead.assigned_to or '' }}" placeholder="–" aria-label="Zugewiesen an {{ lead.name or 'Lead ' + (lead.lead_nummer|string) }} ändern">
+              {% else %}
+              {{ lead.assigned_to or "–" }}
+              {% endif %}
+            </td>
             <td>
               {% for badge in lead.badges %}
                 {% if badge.url %}<a class="badge" href="{{ badge.url }}">{{ badge.text }}</a>
@@ -592,6 +645,111 @@
             btn.disabled = false;
             btn.textContent = defaultLabel;
           });
+      });
+    })();
+
+    // Schnellbearbeitung Status/Zugewiesen direkt in der Liste (Punkt 2,
+    // Marco 2026-08-18): speichert im Hintergrund, ohne die Seite neu zu
+    // laden - die Liste bleibt an derselben Stelle mit denselben Filtern.
+    // Fällt eine Zeile durch die Änderung aus dem aktuellen Filter, bleibt
+    // sie trotzdem stehen und bekommt einen gelben Hinweis, statt
+    // kommentarlos zu verschwinden - sie verschwindet erst beim nächsten
+    // manuellen Neuladen/Filtern.
+    (function () {
+      function zeigeHinweis(tr, text, art) {
+        var hinweis = tr.querySelector('.inline-hinweis');
+        if (!hinweis) { return; }
+        hinweis.textContent = text;
+        hinweis.hidden = !text;
+        hinweis.className = 'inline-hinweis' + (art ? ' ' + art : '');
+      }
+
+      function aktualisiereAmpel(tr, farbe, grund) {
+        var zellen = tr.querySelectorAll('.ampel-cell, .ampel-mobile');
+        zellen.forEach(function (zelle) {
+          var dot = zelle.querySelector('.dot');
+          var text = zelle.querySelector('.ampel-grund-text');
+          if (dot) { dot.className = 'dot ' + farbe; }
+          if (text) { text.textContent = grund; }
+        });
+      }
+
+      function speichereZeile(tr) {
+        var select = tr.querySelector('.inline-status');
+        var input = tr.querySelector('.inline-assigned');
+        if (!select || !input) { return; }
+
+        var leadId = select.dataset.leadId;
+        var vorherStatus = select.dataset.gespeichert;
+        var vorherAssigned = input.dataset.gespeichert;
+
+        var body = new URLSearchParams();
+        body.set('status', select.value);
+        body.set('assigned_to', input.value);
+        body.set('view', window.location.search.replace(/^\?/, ''));
+
+        select.disabled = true;
+        input.disabled = true;
+        zeigeHinweis(tr, 'Speichert…', '');
+
+        fetch('/admin/leads/' + leadId + '/schnellbearbeitung', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        })
+          .then(function (antwort) {
+            if (!antwort.ok) { throw new Error('HTTP ' + antwort.status); }
+            return antwort.json();
+          })
+          .then(function (daten) {
+            select.dataset.gespeichert = daten.status;
+            input.dataset.gespeichert = daten.assigned_to;
+            input.value = daten.assigned_to;
+            aktualisiereAmpel(tr, daten.ampel_farbe, daten.ampel_grund);
+            tr.classList.toggle('row-inaktiv', daten.row_inaktiv);
+
+            if (!daten.passt_zum_filter) {
+              tr.classList.add('row-verlaesst-filter');
+              zeigeHinweis(
+                tr,
+                'Gespeichert – passt nicht mehr zum aktuellen Filter. Zum Ausblenden Liste neu laden oder erneut filtern.',
+                'warnung'
+              );
+            } else {
+              tr.classList.remove('row-verlaesst-filter');
+              zeigeHinweis(tr, '', '');
+            }
+          })
+          .catch(function (fehler) {
+            select.value = vorherStatus;
+            input.value = vorherAssigned;
+            zeigeHinweis(tr, 'Fehler beim Speichern: ' + fehler.message, 'fehler');
+          })
+          .finally(function () {
+            select.disabled = false;
+            input.disabled = false;
+          });
+      }
+
+      document.querySelectorAll('.inline-status').forEach(function (select) {
+        select.addEventListener('change', function () {
+          speichereZeile(select.closest('tr'));
+        });
+      });
+
+      document.querySelectorAll('.inline-assigned').forEach(function (input) {
+        var absenden = function () {
+          if (input.value === input.dataset.gespeichert) { return; }
+          speichereZeile(input.closest('tr'));
+        };
+        input.addEventListener('blur', absenden);
+        input.addEventListener('keydown', function (ereignis) {
+          if (ereignis.key === 'Enter') {
+            ereignis.preventDefault();
+            input.blur();
+          }
+        });
       });
     })();
   </script>

@@ -16,7 +16,9 @@ from urllib.parse import urlencode
 import psycopg
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
+from markupsafe import Markup
 from psycopg.rows import dict_row
+from starlette.datastructures import QueryParams
 
 from app.core.admin_auth import (
     SESSION_MAX_AGE_SECONDS,
@@ -191,12 +193,21 @@ def logout():
     return response
 
 
-def _resolve_dashboard_params(request: Request) -> dict:
-    tab = request.query_params.get("tab", _DEFAULT_TAB)
+def _resolve_dashboard_params(query_params) -> dict:
+    """query_params: alles mit einer dict-artigen .get(key, default) -
+    Methode (Request.query_params ODER ein aus einem beliebigen String
+    gebautes starlette.datastructures.QueryParams). Letzteres braucht die
+    Schnellbearbeitung (Punkt 2, Marco 2026-08-18): dieselbe Filterauflösung
+    UND dieselbe _fetch_leads()-WHERE-Logik wie die Liste selbst prüfen,
+    ob eine gerade geänderte Zeile noch zum Filter passt, unter dem die
+    Änderung ausgelöst wurde - statt einer zweiten, separat gepflegten
+    Nachbildung dieser Logik (dasselbe Prinzip wie beim CSV-Export, der
+    _fetch_leads()/_decorate_row() bereits mit der Liste teilt)."""
+    tab = query_params.get("tab", _DEFAULT_TAB)
     if tab not in _TAB_STATUSES:
         tab = _DEFAULT_TAB
 
-    sort_param = request.query_params.get("sort")
+    sort_param = query_params.get("sort")
     if sort_param in _SORT_MODE_SQL:
         sort_mode, sort_explicit = sort_param, sort_param
     else:
@@ -209,19 +220,19 @@ def _resolve_dashboard_params(request: Request) -> dict:
     # die anderen drei Tabs blenden sie standardmäßig aus. "0"/"1" statt nur
     # Anwesenheit des Parameters, damit der Toggle im Tab "Alle" auch explizit
     # AUSblenden kann (bloßes Fehlen des Parameters hieße sonst überall "Default").
-    alle_param = request.query_params.get("alle")
+    alle_param = query_params.get("alle")
     if alle_param in ("0", "1"):
         show_all, show_all_explicit = alle_param == "1", alle_param
     else:
         show_all, show_all_explicit = tab == "alle", None
 
-    channel_filter = request.query_params.get("channel") or None
+    channel_filter = query_params.get("channel") or None
     if channel_filter not in CHANNEL_LABELS:
         channel_filter = None
-    bundesland_filter = request.query_params.get("bundesland") or None
+    bundesland_filter = query_params.get("bundesland") or None
     if bundesland_filter not in GERMAN_STATES:
         bundesland_filter = None
-    ampel_filter = request.query_params.get("ampel") or None
+    ampel_filter = query_params.get("ampel") or None
     if ampel_filter not in _AMPEL_FARBEN:
         ampel_filter = None
     # ort/status/zugewiesen: keine feste Werteliste zum Validieren gegen -
@@ -229,15 +240,15 @@ def _resolve_dashboard_params(request: Request) -> dict:
     # CHECK-Constraint zu pflegen wäre genau das Muster, das erst kürzlich
     # zum 'simuliert'-Fund geführt hat (s. docs/FUNDE.md). Ein nicht
     # passender Wert liefert schlicht null Treffer, kein Fehler.
-    ort_filter = (request.query_params.get("ort") or "").strip() or None
-    status_filter = (request.query_params.get("status") or "").strip() or None
-    zugewiesen_filter = (request.query_params.get("zugewiesen") or "").strip() or None
+    ort_filter = (query_params.get("ort") or "").strip() or None
+    status_filter = (query_params.get("status") or "").strip() or None
+    zugewiesen_filter = (query_params.get("zugewiesen") or "").strip() or None
 
     return {
         "tab": tab,
         "show_all": show_all,
         "show_all_explicit": show_all_explicit,
-        "search": (request.query_params.get("q") or "").strip() or None,
+        "search": (query_params.get("q") or "").strip() or None,
         "sort_mode": sort_mode,
         "sort_explicit": sort_explicit,
         "channel_filter": channel_filter,
@@ -255,7 +266,7 @@ def dashboard(request: Request):
     if not admin_username:
         return RedirectResponse(url="/admin/login", status_code=303)
 
-    p = _resolve_dashboard_params(request)
+    p = _resolve_dashboard_params(request.query_params)
     _fetch_only = {k: v for k, v in p.items() if k not in ("sort_explicit", "show_all_explicit")}
 
     with get_connection() as conn:
@@ -298,6 +309,14 @@ def dashboard(request: Request):
         "csv_export_url": url(path="/admin/export.csv"),
         "channel_labels": CHANNEL_LABELS,
         "status_label": status_label,
+        # Inline-Bearbeitung Status/Zugewiesen direkt in der Liste (Punkt 2,
+        # Marco 2026-08-18): Options-Liste fürs <select>, plus die reine
+        # Werteliste zum Prüfen, ob eine Zeile überhaupt inline editierbar
+        # ist (nur die 5 manuell setzbaren Status - duplikat/ersetzt/ausland
+        # bleiben wie bisher nur über die Detailansicht änderbar, s.
+        # _MANUALLY_SETTABLE_STATUSES oben).
+        "status_optionen": [(value, status_label(value)) for value in _MANUALLY_SETTABLE_STATUSES],
+        "editierbare_status": _MANUALLY_SETTABLE_STATUSES,
     }
     return templates.TemplateResponse(request=request, name="admin_dashboard.html", context=context)
 
@@ -361,6 +380,7 @@ def _fetch_leads(
     ort_filter: str | None = None,
     status_filter: str | None = None,
     zugewiesen_filter: str | None = None,
+    only_id: str | None = None,
 ) -> list[dict]:
     conditions: list[str] = []
     params: dict = {}
@@ -418,6 +438,14 @@ def _fetch_leads(
     if zugewiesen_filter:
         conditions.append("l.assigned_to = %(zugewiesen_filter)s")
         params["zugewiesen_filter"] = zugewiesen_filter
+
+    if only_id:
+        # Schnellbearbeitung (Punkt 2): dieselbe WHERE-Logik wie die Liste,
+        # nur auf einen einzelnen Lead eingeschränkt - damit lässt sich ohne
+        # eine zweite Filter-Nachbildung prüfen, ob eine gerade geänderte
+        # Zeile noch zum aktiven Filter passt (leeres Ergebnis = nein).
+        conditions.append("l.id = %(only_id)s")
+        params["only_id"] = only_id
 
     where_sql = " AND ".join(conditions) if conditions else "true"
     order_sql = _SORT_MODE_SQL[sort_mode]
@@ -550,6 +578,13 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
         raise ValueError(f"traffic_light fehlt für Lead {row['id']} - ein Schreibpfad hat sie nicht aktualisiert")
 
     status_display = status_label(row["status"])
+    # vorgang_hinweis getrennt von status_display gehalten (Punkt 2, Marco
+    # 2026-08-18): die Inline-Bearbeitung in der Liste ersetzt status_display
+    # durch ein <select>, das "Version X von Y" nicht mit anzeigen kann -
+    # das Template rendert vorgang_hinweis deshalb als eigene Zeile darunter.
+    # status_display bleibt unverändert (CSV-Export/andere Konsumenten lesen
+    # weiter dieses eine kombinierte Feld).
+    vorgang_hinweis = None
     if vorgang_position and vorgang_position[1] > 1:
         # Zugehörigkeit über die Lead-Nummer sichtbar machen, nicht über
         # einen zusätzlichen Hinweis-Satz (Marco, 2026-08-17: "Teil einer
@@ -557,7 +592,8 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
         # für den Normalfall (keine Korrektur/kein Duplikat) wäre "Version
         # 1 von 1" reine Auffüllung ohne Information.
         pos, gesamt = vorgang_position
-        status_display = f"{status_display}, Version {pos} von {gesamt}"
+        vorgang_hinweis = f"Version {pos} von {gesamt}"
+        status_display = f"{status_display}, {vorgang_hinweis}"
 
     badges: list[dict] = []
 
@@ -605,6 +641,7 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
         **row,
         "created_at_display": format_berlin_datetime(row["created_at"]),
         "status_display": status_display,
+        "vorgang_hinweis": vorgang_hinweis,
         "ampel_farbe": row["traffic_light"],
         "ampel_grund": row["traffic_light_reason"],
         "badges": badges,
@@ -629,6 +666,7 @@ def _defekte_zeile(row: dict) -> dict:
         **row,
         "created_at_display": str(row.get("created_at", "")),
         "status_display": "Fehler bei der Anzeige",
+        "vorgang_hinweis": None,
         "ampel_farbe": "defekt",
         "ampel_grund": "Diese Zeile konnte nicht korrekt angezeigt werden - Details im Server-Log.",
         "badges": [],
@@ -673,7 +711,7 @@ def export_leads_csv(request: Request):
     if not admin_username:
         return RedirectResponse(url="/admin/login", status_code=303)
 
-    p = _resolve_dashboard_params(request)
+    p = _resolve_dashboard_params(request.query_params)
 
     with get_connection() as conn:
         rows = _fetch_leads(conn, **{k: v for k, v in p.items() if k not in ("sort_explicit", "show_all_explicit")})
@@ -915,6 +953,19 @@ def _geocode_candidates_for_display(row: dict) -> list[dict] | None:
     return candidate_summaries(raw["results"])
 
 
+def _maps_link_html(lat, lon) -> str:
+    """Echter, klickbarer Link (Nebenfund: das Feld zeigte bisher nur die
+    rohe URL als Text, ohne <a>-Tag) - dieselbe Behandlung wie das
+    Maps-Symbol in der Liste (neuer Tab, noopener/noreferrer). lat/lon
+    kommen aus der numeric-Spalte in der DB, nie aus direkt interpoliertem
+    Nutzertext - Markup.format() escaped den Wert trotzdem zusätzlich, statt
+    sich allein darauf zu verlassen."""
+    if lat is None or lon is None:
+        return "– (noch nicht geokodiert)"
+    url = f"https://maps.google.com/?q={lat},{lon}"
+    return Markup('<a href="{}" target="_blank" rel="noopener noreferrer">📍 Auf Google Maps öffnen</a>').format(url)
+
+
 def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
     """Alle Lead-Spalten außer message/duplicate_of/superseded_by/
     traffic_light(_reason)/status/assigned_to/disqualify_reason/
@@ -941,9 +992,7 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
     else:
         phone_value = "–"
 
-    maps_link = "– (noch nicht geokodiert)"
-    if row["lat"] is not None and row["lon"] is not None:
-        maps_link = f"https://maps.google.com/?q={row['lat']},{row['lon']}"
+    maps_link = _maps_link_html(row["lat"], row["lon"])
 
     koordinaten = f"{row['lat']}, {row['lon']}" if row["lat"] is not None else "–"
 
@@ -1142,6 +1191,120 @@ def update_lead_bearbeitung(
             apply_traffic_light(conn, lead_id)
 
     return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion=gespeichert", status_code=303)
+
+
+# --- Schnellbearbeitung in der Liste (Punkt 2, Marco 2026-08-18) ----------
+# Sales arbeitet die Liste morgens von oben nach unten telefonierend ab -
+# jeden Lead einzeln öffnen, Status ändern, zurücknavigieren wäre Reibung im
+# Hauptarbeitsablauf. Deckt bewusst nur Status + Zugewiesen ab (die zwei
+# Felder für diesen Workflow), nicht disqualify_reason (Freitext, bleibt
+# Detailansicht) und nicht die drei automatisch gesetzten Status duplikat/
+# ersetzt/ausland (dieselbe Einschränkung wie beim bestehenden Dropdown in
+# der Detailansicht, s. _MANUALLY_SETTABLE_STATUSES). JSON statt Redirect,
+# weil das Dashboard per fetch() im Hintergrund speichert (kein Neuladen,
+# Liste bleibt an Ort und Stelle mit denselben Filtern) - dasselbe Muster
+# wie der bestehende globale Retry-Button.
+
+
+@router.post("/leads/{lead_id}/schnellbearbeitung")
+def quick_update_lead(
+    request: Request,
+    lead_id: str,
+    status: str = Form(...),
+    assigned_to: str = Form(""),
+    view: str = Form(""),
+):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        # Kein Redirect wie bei den Formular-Aktionen: der Aufrufer ist
+        # fetch(), ein 401 mit JSON lässt sich dort sauber behandeln, ein
+        # Redirect auf /admin/login würde als "Erfolg" mit HTML-Inhalt
+        # ankommen und die spätere JSON-Auswertung zum Absturz bringen.
+        raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+
+    if status not in _MANUALLY_SETTABLE_STATUSES:
+        raise HTTPException(status_code=400, detail="Ungültiger Status.")
+
+    assigned_to = assigned_to.strip() or None
+
+    with get_connection() as conn:
+        row = _fetch_lead(conn, lead_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+
+        if row["status"] in _INAKTIVE_STATUSWERTE and row["status"] != "spam":
+            # Serverseitiges Sicherheitsnetz, nicht nur im Template
+            # versteckt (CLAUDE.md Regel 11): ein direkter POST an diesen
+            # Endpunkt darf eine duplikat/ersetzt/ausland-Zeile nicht über
+            # die Schnellbearbeitung umbiegen - das würde die Relation
+            # (duplicate_of/superseded_by) stehen lassen, aber den Status
+            # so setzen, als gäbe es sie nicht. 'spam' ist ausgenommen: das
+            # ist der einzige der vier gedämpften Status, der laut Konzept
+            # §J manuell zurückgesetzt werden können muss.
+            raise HTTPException(status_code=409, detail="Dieser Status ist nur über die Detailansicht änderbar.")
+
+        updates: dict = {}
+
+        if status != row["status"]:
+            updates["status"] = status
+            insert_event(conn, lead_id, "status_geaendert", {"von": row["status"], "nach": status})
+
+        # Identische Logik wie update_lead_bearbeitung oben (is_spam-Sync,
+        # contacted_at) - absichtlich dupliziert statt in eine gemeinsame
+        # Funktion gezogen, weil die beiden Endpunkte unterschiedlich auf
+        # Fehler/Ergebnis reagieren (Redirect+Flash vs. JSON) und eine
+        # gemeinsame Funktion an dieser Stelle mehr Kopplung als Nutzen
+        # gebracht hätte; beide Stellen sind kurz genug, um beim Ändern der
+        # einen die andere nicht zu vergessen.
+        if status == "spam" and not row["is_spam"]:
+            updates["is_spam"] = True
+            updates["spam_reason"] = "manuell_markiert"
+        elif status != "spam" and row["is_spam"]:
+            updates["is_spam"] = False
+
+        if status == "kontaktiert" and row["contacted_at"] is None:
+            updates["contacted_at"] = datetime.now(timezone.utc)
+
+        if assigned_to != row["assigned_to"]:
+            updates["assigned_to"] = assigned_to
+            insert_event(conn, lead_id, "zugewiesen", {"an": assigned_to})
+
+        if updates:
+            _update_lead(conn, lead_id, updates)
+            apply_traffic_light(conn, lead_id)
+
+        # Vollständig aufbereitete Zeile für die Antwort - dieselbe
+        # _fetch_leads()/_decorate_row()-Pipeline wie die Liste selbst
+        # (tab='alle', show_all=True: hier zählt nur, was JETZT in der DB
+        # steht, keine Filterbedingung), damit Ampel/Badges/Version-Hinweis
+        # exakt so aufbereitet werden wie bei jedem normalen Seitenaufruf.
+        aktuelle_zeile = _fetch_leads(conn, tab="alle", show_all=True, search=None, sort_mode="aeltest", only_id=lead_id)
+        if not aktuelle_zeile:
+            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+        raw = aktuelle_zeile[0]
+        positions = _fetch_vorgang_positions(conn, [raw["lead_nummer"]] if raw["lead_nummer"] is not None else [])
+        dekoriert = _decorate_row_safe(raw, positions.get(str(raw["id"])))
+
+        # Passt die Zeile noch zum Filter, unter dem die Änderung ausgelöst
+        # wurde? "view" ist der rohe Query-String der Liste zum Zeitpunkt
+        # des Klicks (vom Dashboard-JS aus window.location.search
+        # mitgeschickt) - dieselbe _resolve_dashboard_params()/_fetch_leads()
+        # -Kette wie beim normalen Seitenaufruf, nur mit only_id
+        # eingeschränkt, statt einer zweiten Nachbildung der Filterlogik.
+        filter_params = _resolve_dashboard_params(QueryParams(view))
+        filter_kwargs = {k: v for k, v in filter_params.items() if k not in ("sort_explicit", "show_all_explicit")}
+        passt_zum_filter = bool(_fetch_leads(conn, only_id=lead_id, **filter_kwargs))
+
+    return {
+        "status": dekoriert["status"],
+        "status_display": dekoriert["status_display"],
+        "vorgang_hinweis": dekoriert["vorgang_hinweis"],
+        "assigned_to": dekoriert["assigned_to"] or "",
+        "ampel_farbe": dekoriert["ampel_farbe"],
+        "ampel_grund": dekoriert["ampel_grund"],
+        "row_inaktiv": dekoriert["row_inaktiv"],
+        "passt_zum_filter": passt_zum_filter,
+    }
 
 
 @router.post("/leads/{lead_id}/mail-erneut-senden")
