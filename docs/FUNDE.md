@@ -158,3 +158,57 @@ Prüfung)"). Zusätzlich, wichtiger als der Einzelfall:
 der echten CHECK-Constraint erlaubten `geocode_status`-Wert - gegen die DB
 gelesen, nicht gegen eine von Hand gepflegte Liste, die genau auf dieselbe
 Art still hätte veralten können wie die Regeltabelle selbst.
+
+## `pyproject.toml` wurde als Projektdefinition statt als Pytest-Konfiguration gelesen (`pyproject.toml`, `pytest.ini`)
+
+`pyproject.toml` existierte ausschließlich für `[tool.pytest.ini_options]`
+(`pythonpath`/`testpaths`, seit dem Kernlogik-Commit vom 15.08.), ohne
+`[project]`-Abschnitt - für pytest genügt das, da es das Vorhandensein der
+Datei ohne Projektdefinition nie prüft. Vercels neuerer, `uv`-basierter
+Python-Build behandelt die bloße Existenz von `pyproject.toml` dagegen als
+"dieses Projekt erklärt seine Abhängigkeiten hier" und versucht `uv lock`
+dagegen laufen zu lassen - das schlug fehl ("No `project` table found"),
+weil kein `[project]`-Abschnitt existiert. Der Build brach damit komplett
+ab, sichtbar ausschließlich im Vercel-Deployment-Log, nie lokal: `pytest`
+braucht den `[project]`-Abschnitt nicht und lief die ganze Zeit
+klaglos durch.
+
+Naheliegend wäre gewesen, nur einen minimalen `[project]`-Abschnitt
+nachzutragen, um den Fehler verschwinden zu lassen. Vor der Entscheidung
+recherchiert (Vercel-Dokumentation, ein passender GitHub-Issue im
+vercel/vercel-Repo mit identischem Fehlerbild bei anderen Nutzern): Sind
+sowohl `pyproject.toml` als auch `requirements.txt` vorhanden und existiert
+kein Lockfile, verwendet Vercels Build laut eigenem Log-Text ausdrücklich
+NUR `pyproject.toml` ("Detected both pyproject.toml and requirements.txt
+but no lockfile; using pyproject.toml") - `requirements.txt` würde dann
+komplett ignoriert. Ein minimaler `[project]`-Abschnitt ohne
+Abhängigkeitsliste hätte den jetzigen, lauten Baufehler durch einen
+stilleren ersetzt: der Build wäre durchgelaufen, aber ohne eine einzige
+der echten Abhängigkeiten (FastAPI, psycopg, ...) zu installieren - ein
+sofortiger Laufzeitabsturz bei der ersten Anfrage statt eines
+Deployment-Fehlers. Sicher wäre nur ein `[project.dependencies]`-Abschnitt
+gewesen, der `requirements.txt` vollständig dupliziert, zusätzlich mit
+einem committeten `uv.lock` - eine zweite Quelle der Wahrheit für
+Abhängigkeiten, die genau auf die Art hätte auseinanderlaufen können wie
+mehrere andere Funde in diesem Dokument.
+
+Stattdessen die Ursache entfernt statt umgangen: Pytest-Konfiguration nach
+`pytest.ini` verschoben (`[pytest]`-Sektion statt
+`[tool.pytest.ini_options]`, sonst inhaltlich identisch), `pyproject.toml`
+gelöscht. Kein Kompromiss, sondern eine Rückkehr zu einem bereits
+nachweislich funktionierenden Stand: Das allererste erfolgreiche
+Vercel-Deployment (Commit `8f70f2f`, FastAPI-Skelett) lief ausschließlich
+über `requirements.txt` + `api/index.py` + `.python-version`, bevor
+`pyproject.toml` einen Commit später überhaupt existierte. Live gegen ein
+echtes Deployment noch nicht verifiziert (folgt mit dem nächsten Deploy),
+lokal lief die volle Testsuite nach der Umstellung unverändert grün.
+
+Bemerkenswert: derselbe Fundtyp wie der `vercel.json`-Fund vom ersten Abend
+(Commit `80e85a4`, 15.08.) - dort brach der Build an einem ungültigen
+`functions.runtime`-Feld ("python3.12" statt des für Custom-Runtimes
+erwarteten `<paket>@<semver>`-Formats), hier an einer für ein anderes
+Werkzeug angelegten Datei, die Vercel als Projektdefinition liest. Beide
+Fehler sind ausschließlich beim Deployment sichtbar, keiner lokal
+reproduzierbar - Vercels Build-Pipeline interpretiert Konfigurationsdateien
+strenger und anders, als die Werkzeuge, für die sie eigentlich gedacht
+sind.

@@ -80,6 +80,16 @@ s. Block-(e)-Eintrag oben, braucht `RETRY_URL`/`RETRY_SECRET` in den
 GitHub-Repo-Einstellungen). Auslandspfad + Landesbauordnung-Zuordnung
 kommen laut Marco separat NACH Block (a)-(e).
 
+**Deploy-Blocker gefunden und behoben (17.08.):** der erste Vercel-Build
+scheiterte an `pyproject.toml` - existierte nur für die Pytest-
+Konfiguration, ohne `[project]`-Abschnitt, wurde von Vercels `uv`-Build
+aber als Projektdefinition gelesen ("No `project` table found"). Fund +
+Entscheidung (Pytest-Konfiguration nach `pytest.ini` verschoben,
+`pyproject.toml` gelöscht statt einen `[project]`-Abschnitt nachzutragen -
+letzteres hätte riskiert, dass Vercel `requirements.txt` künftig komplett
+ignoriert) in docs/FUNDE.md. Noch NICHT gegen ein echtes Deployment
+verifiziert - das ist der nächste Schritt.
+
 **Mehrdeutig-Kriterium korrigiert (17.08., drei Funde, Details in
 docs/FUNDE.md):** Die ursprüngliche Regel ("mehr als ein Nominatim-Treffer
 = mehrdeutig") löste bei vollständigen Adressen fast durchgängig Gelb aus,
