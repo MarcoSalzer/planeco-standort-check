@@ -43,7 +43,8 @@ bricht vor jedem risikobehafteten Testfall (und einmal zentral für den von
 wenn die Adresse bereits einem echten (nicht `testlauf-%`) Lead gehört,
 statt eine Kollision einzugehen. Betroffene Testadressen auf eindeutig
 erfundene Straßen in denselben Orten umgestellt. Voller Bericht inkl.
-Beweisführung in docs/FUNDE.md (neuester Eintrag).
+Beweisführung in docs/FUNDE.md unter „Ein Testfall überschrieb kurzzeitig
+einen echten Beispiel-Lead".
 
 **Nebenfund dabei, nicht von dieser Session verursacht:** 23 Zeilen in der
 Datenbank sehen wie nie aufgeräumter Entwickler-Testmüll aus früheren

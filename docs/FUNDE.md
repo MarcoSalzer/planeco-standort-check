@@ -414,6 +414,53 @@ Mit Marco abgestimmt: Verhalten ist so richtig, bewusst nicht auf
 Teilstring-Toleranz aufgeweicht - das wäre derselbe Fehlertyp wie der
 Bayern-Weiler-Fund, nur eine Stufe vorsichtiger versteckt.
 
+## Ein Testfall überschrieb kurzzeitig einen echten Beispiel-Lead (`scripts/testlauf.py`, `app/submission.py`)
+
+Beim automatisierten Testlauf über die neuen Phase-5-Randfälle (Geocoding-
+Rückfälle, Auslandspfad, Korrekturfenster) verwendete ein neuer Testfall
+versehentlich exakt dieselbe Adresse ("Am Mühlenteich 7, Groß Grönau") wie
+der echte Beispiel-Lead `lead_nummer 15` - eine der fünf Aufgaben-
+Beispieladressen, zu diesem Zeitpunkt bereits in der Datenbank.
+`persist_submission()` erkennt eine Straße+Ort-Übereinstimmung als F3-Match,
+unabhängig davon, ob der Vorgänger ein echter Lead oder ein eigener
+Testdatensatz ist - aus Sicht der Dedup-Logik gibt es diesen Unterschied
+nicht, und im Normalfall ist das genau richtig so. Die Testabgabe wurde
+deshalb als Korrektur des echten Leads behandelt: der echte Lead wurde auf
+`status='ersetzt'` gesetzt, ein Fake-Testdatensatz wurde die neue führende
+Version.
+
+Aufgefallen, weil das anschließende automatische Aufräumen des Testlaufs
+(löscht nur selbst erzeugte Testzeilen) an einer Fremdschlüssel-Verkettung
+scheiterte - nicht durch eine gezielte Prüfung, die den Fall hätte
+verhindern sollen; die gab es zu diesem Zeitpunkt noch nicht.
+
+**Vollständig von Hand wiederhergestellt**, bevor irgendetwas weiter
+geändert wurde: status/superseded_by aus der Event-Historie rekonstruiert
+(keine `status_geaendert`-Events auf dem echten Lead vorhanden, also
+zweifelsfrei `status='neu'`/`superseded_by=NULL` vor dem Vorfall), das
+fälschliche `ersetzt`-Event entfernt, der Fake-Testdatensatz gelöscht.
+Verifiziert: die Kette steht exakt wie vor dem Testlauf, inklusive des
+vorherigen legitimen `nur_ort`-Fixes auf demselben Lead. Kein Datenverlust,
+aber knapp.
+
+Derselbe grundsätzliche Fehlertyp wie die übrigen Funde in diesem Dokument,
+nur mit echten Produktivdaten statt einer Fehlanzeige als Konsequenz: eine
+für sich genommen korrekte Logik (F3-Matching über Adresse) traf auf einen
+Kontext, den sie nicht kennt (Testdaten vs. echte Daten), und produzierte
+ein stilles, folgenreiches Ergebnis - kein Fehlerausschlag, sondern eine
+unbemerkt vertauschte Führungsrolle in einer Korrekturkette.
+
+Behoben: `scripts/testlauf.py::_verify_address_free()` bricht jetzt vor
+jedem risikobehafteten Testfall (und einmal zentral für den von ~15 Fällen
+gemeinsam genutzten Default "Teststraße 1"/"Teststadt") hart ab, wenn die
+Adresse bereits einem echten (nicht `testlauf-%`) Lead gehört, statt eine
+Kollision einzugehen. Betroffene Testadressen auf eindeutig erfundene
+Straßen in denselben Orten umgestellt. Die Absicherung wurde am 19.08. ein
+zweites Mal wirksam: sie brach den Testlauf beim Aufgabenbeispiel
+"Lindenweg 3, Neustadt" korrekt mit einer klaren Fehlermeldung ab, weil
+dort inzwischen Marcos echter, live eingetippter Beispiel-Lead stand -
+ohne erneute Kollision.
+
 ## Eine Testerwartung meldete einen bereits behobenen Fehler als offenen Fund (`scripts/testlauf.py`)
 
 `test_ungueltiger_heard_about()` prüfte noch gegen den Zustand von vor dem
