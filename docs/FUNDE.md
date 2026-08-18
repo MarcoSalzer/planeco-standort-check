@@ -494,3 +494,45 @@ gemischte Fälle ("20095 Hamburg" in einem Feld) erkennen will - das wäre
 Raten über die genaue Absicht des Interessenten (CLAUDE.md Regel 12).
 Zwei Tests ergänzt: die Ziffernfolge wird abgelehnt, ein Ortsname mit
 enthaltenen Ziffern (z.B. ein Nummernzusatz) bleibt zulässig.
+
+## Die eigene Verschärfung des Ortsnamen-Abgleichs war selbst der Rückschritt (`app/core/geocoding.py`)
+
+Der exakte Ortsnamen-Vergleich vom 18.08. (Fund "Bayern-Weiler bei Wien",
+s. oben) hatte eine echte Lücke geschlossen (ein zu großzügiger Abgleich
+akzeptierte einen unscharf gefundenen falschen Ort), aber gleichzeitig
+den eigentlichen Sinn eines der fünf Aufgabenbeispiele zerstört: "Lindenweg
+3, Neustadt" soll laut Aufgabe `mehrdeutig` ergeben (Nominatim findet
+"Neustadt" als Ortsnamen-Fragment in mehreren Bundesländern - Baden-
+Württemberg, Schleswig-Holstein, Sachsen). Der exakte Vergleich verlangte
+aber `"neustadt" == "neustadt im schwarzwald"` - das ist nie wahr, also
+bestand kein einziger Kandidat den Ortsnamen-Filter, Ergebnis
+`nicht_gefunden` statt `mehrdeutig`. Marco fand das erst beim Live-Test
+mit dem echten Formular am 19.08., einen Tag nach der Einführung - die
+damalige Testerwartung (`test_lindenweg_neustadt_mit_wortlaut_eingabe_
+ist_jetzt_nicht_gefunden`) hatte das neue, aber falsche Verhalten korrekt
+abgebildet und damit den Fehler mitbestätigt, statt ihn zu fangen (ein
+Test kann nur falsch sein, wenn die Erwartung selbst falsch ist).
+
+Derselbe grundsätzliche Fehlertyp wie beim Bayern-Weiler-Fund, nur mit
+umgekehrtem Vorzeichen: dort war eine Prüfung zu locker (akzeptierte
+Falsches), hier war die Korrektur zu streng (verwarf Richtiges). Beides
+zeigt, dass "strenger ist sicherer" keine verlässliche Faustregel ist -
+jede Verschärfung braucht dieselbe Sorgfalt wie jede Lockerung.
+
+Behoben: Enthalten-Vergleich statt exaktem Vergleich (`app/core/geocoding.py::
+_ort_enthalten()`) - einer der beiden normalisierten Werte muss im anderen
+enthalten sein, in beide Richtungen. Löst den Neustadt-Fall (Eingabe ist
+Präfix des Kandidaten) und bliebe auch für den umgekehrten Fall korrekt
+(Kandidat ist Präfix der Eingabe). Der ursprüngliche Bayern-Weiler-Fund
+bleibt weiterhin behoben: dort ging es um eine PLZ-Diskrepanz bei einer
+unscharfen GEBIETSSUCHE ohne countrycodes-Filter, nicht um den
+Ortsnamen-Vergleich selbst - "Wien" (Eingabe) vs. "Wien" (Weiler-Name im
+Ergebnis) wäre auch mit dem alten exakten Vergleich schon eine
+Übereinstimmung gewesen; PLZ/Land-Prüfung (nicht der Ortsname) fingen
+diesen Fall auf und tun das unverändert weiter. Live gegen die echte API
+erneut geprüft, ohne Datenbank-Schreibzugriff (die fünf echten
+Beispiel-Leads standen zu dem Zeitpunkt bereits in der Datenbank):
+Lindenweg/Neustadt wieder `mehrdeutig` (3 Kandidaten), Groß Grönau
+weiterhin `nur_ort`, Hamburg mit falscher PLZ weiterhin `plz_abweichend`,
+Wien weiterhin `ausland` - keiner der übrigen Fälle hat sich durch die
+Lockerung verschlechtert.

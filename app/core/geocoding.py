@@ -120,10 +120,14 @@ def _normalisiert_wie_dedup(value: str) -> str:
     return value.strip().lower()
 
 
+def _ort_enthalten(a: str, b: str) -> bool:
+    return a in b or b in a
+
+
 def _ort_stimmt_ueberein(address: dict, erwarteter_ort: str) -> bool:
     erwartet_norm = _normalisiert_wie_dedup(erwarteter_ort)
     return any(
-        _normalisiert_wie_dedup(address[schluessel]) == erwartet_norm
+        _ort_enthalten(erwartet_norm, _normalisiert_wie_dedup(address[schluessel]))
         for schluessel in _GEMEINDE_SCHLUESSEL
         if address.get(schluessel)
     )
@@ -177,11 +181,18 @@ def parse_nominatim_results(
     existiert, wurde nie gegen das Ergebnis geprüft). Zwei getrennte
     Kriterien, bewusst unterschiedlich streng:
 
-    - **Ortsname (hart):** muss - nach derselben Normalisierung wie der
-      Duplikat-Vergleich (lower/trim) - mit mindestens einem der Nominatim-
-      Ortsfelder (city/town/municipality/village/township/hamlet)
-      übereinstimmen. Kein Kandidat erfüllt das -> nicht_gefunden,
-      unabhängig davon, wie viele Treffer Nominatim insgesamt lieferte.
+    - **Ortsname (hart, aber Enthalten-Vergleich statt exakt - Marco,
+      2026-08-19, Fund s. docs/FUNDE.md):** nach derselben Normalisierung
+      wie der Duplikat-Vergleich (lower/trim) muss der eingegebene Ort in
+      mindestens einem der Nominatim-Ortsfelder (city/town/municipality/
+      village/township/hamlet) enthalten sein ODER umgekehrt. Ursprünglich
+      exakter Vergleich - das ließ "Neustadt" nicht mehr auf "Neustadt im
+      Schwarzwald" passen und degradierte den Aufgabenbeispiel-Fall
+      "Lindenweg 3, Neustadt" von mehrdeutig (drei Bundesländer, der
+      eigentliche Sinn dieses Beispiels) zu nicht_gefunden - ein
+      Rückschritt, kein Fortschritt. Kein Kandidat erfüllt das Enthalten-
+      Kriterium -> nicht_gefunden, unabhängig davon, wie viele Treffer
+      Nominatim insgesamt lieferte.
     - **PLZ (weich, erst am gewählten Kandidaten geprüft):** eine FEHLENDE
       PLZ in der Antwort ist KEIN Widerspruch (Verwaltungsgrenzen-Objekte
       wie Dörfer/Gemeinden liefern grundsätzlich keine PLZ, s.
@@ -210,10 +221,10 @@ def parse_nominatim_results(
     spielt für die Mehrdeutig-Erkennung keine Rolle, nur für den
     letztendlich gewählten Kandidaten). Stimmen alle überein, gewinnt der
     Kandidat mit dem höchsten Nominatim-`importance`-Wert als "genauester
-    Treffer". Der Testfall "Lindenweg 3, Neustadt" (Aufgabe) bleibt
+    Treffer". Der Testfall "Lindenweg 3, Neustadt" (Aufgabe) ist wieder
     mehrdeutig, weil dort tatsächlich drei verschiedene Bundesländer
     auftreten (Baden-Württemberg/Schleswig-Holstein/Sachsen - "Neustadt"
-    als Ortsnamen-Fragment gibt es mehrfach).
+    als Ortsnamen-Fragment gibt es mehrfach, s. Enthalten-Kriterium oben).
 
     Jede Entscheidung wird in `raw.auswahl` protokolliert (wie viele
     Kandidaten es gab, ob sie übereinstimmten oder widersprachen, welcher

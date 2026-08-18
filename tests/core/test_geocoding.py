@@ -98,28 +98,26 @@ def test_fuenf_treffer_am_selben_ort_gelten_als_eindeutig_wie_reales_beispiel_ma
     assert result.raw["auswahl"]["gewaehlter_index"] == 4  # das Rathaus steht als letztes in der Liste
 
 
-def test_lindenweg_neustadt_mit_wortlaut_eingabe_ist_jetzt_nicht_gefunden():
-    # Verhaltensänderung (Marco, 2026-08-18, s. docs/FUNDE.md): Nominatims
-    # drei "Neustadt"-Kandidaten aus dem Testfall der Aufgabe heißen in
-    # Wirklichkeit "Neustadt im Schwarzwald"/"Neustadt in Holstein"/
-    # "Neustadt in Sachsen" - keiner davon entspricht dem exakt eingegebenen
-    # Ortsnamen "Neustadt" nach dem neuen Abgleich (derselbe strenge
-    # lower/trim-Vergleich wie beim Duplikat-Vergleich, keine Teilstring-
-    # Toleranz). Vorher wurde jeder Kandidat ungeprüft akzeptiert, das
-    # Ergebnis war 'mehrdeutig'. Jetzt: kein einziger Kandidat besteht die
-    # Adress-Prüfung -> 'nicht_gefunden'. Bewusst NICHT nachträglich auf
-    # Teilstring-Toleranz aufgeweicht - das wäre derselbe Fehlertyp wie der
-    # Bayern-Weiler-Fund (ein zu großzügiger Abgleich), nur eine Stufe
-    # vorsichtiger versteckt.
+def test_lindenweg_neustadt_mit_wortlaut_eingabe_ist_mehrdeutig():
+    # Verhaltensänderung, zweite Runde (Marco, 2026-08-19, s. docs/FUNDE.md):
+    # ein exakter lower/trim-Vergleich (2026-08-18 eingeführt) ließ "Neustadt"
+    # nicht mehr auf "Neustadt im Schwarzwald" passen - Nominatims drei
+    # "Neustadt"-Kandidaten aus dem Aufgabenbeispiel heißen in Wirklichkeit
+    # "Neustadt im Schwarzwald"/"Neustadt in Holstein"/"Neustadt in Sachsen",
+    # keiner bestand den exakten Abgleich -> 'nicht_gefunden'. Das war ein
+    # Rückschritt: genau dieser Fall (drei Bundesländer) ist der Sinn des
+    # Aufgabenbeispiels. Jetzt Enthalten-Vergleich (einer der beiden Werte
+    # steckt im anderen) statt exaktem Vergleich - alle drei bestehen wieder,
+    # Ergebnis ist wieder 'mehrdeutig' wie ursprünglich beabsichtigt.
     kandidaten = [
         _result(address={"city": "Neustadt im Schwarzwald", "state": "Baden-Württemberg", "postcode": "79822", "country_code": "de"}),
         _result(address={"city": "Neustadt in Holstein", "state": "Schleswig-Holstein", "postcode": "23730", "country_code": "de"}),
         _result(address={"city": "Neustadt in Sachsen", "state": "Sachsen", "postcode": "01844", "country_code": "de"}),
     ]
     result = parse_nominatim_results(kandidaten, expected_postal_code=None, expected_city="Neustadt")
-    assert result.status == "nicht_gefunden"
-    assert result.candidate_count == 0
-    assert result.raw["auswahl"]["eingestuft_als"] == "kein_passender_treffer"
+    assert result.status == "mehrdeutig"
+    assert result.candidate_count == 3
+    assert result.raw["auswahl"]["eingestuft_als"] == "widerspruechlich"
 
 
 def test_lindenweg_neustadt_bleibt_mehrdeutig_bei_exakt_uebereinstimmendem_ortsnamen():
@@ -139,6 +137,23 @@ def test_lindenweg_neustadt_bleibt_mehrdeutig_bei_exakt_uebereinstimmendem_ortsn
     assert result.geo_state is None
     assert result.in_service_area is None
     assert result.raw["auswahl"] == {"kandidaten_gesamt": 3, "eingestuft_als": "widerspruechlich", "gewaehlter_index": None}
+
+
+def test_ortsname_enthalten_in_umgekehrter_richtung():
+    # Enthalten-Kriterium gilt in beide Richtungen: hier ist Nominatims
+    # Ortsfeld KÜRZER als die Eingabe (Eingabe enthält das Ortsfeld), nicht
+    # umgekehrt wie beim Neustadt-Fall oben.
+    kandidaten = [_result(address={"city": "Grönau", "state": "Schleswig-Holstein", "country_code": "de"})]
+    result = parse_nominatim_results(kandidaten, expected_postal_code=None, expected_city="Groß Grönau")
+    assert result.status == "ok"
+
+
+def test_voellig_anderer_ortsname_bleibt_nicht_gefunden():
+    # Das Enthalten-Kriterium ist eine Lockerung, keine Abschaffung der
+    # Prüfung: ein Ortsname ohne jede Überschneidung besteht weiterhin nicht.
+    kandidaten = [_result(address={"city": "München", "state": "Bayern", "country_code": "de"})]
+    result = parse_nominatim_results(kandidaten, expected_postal_code=None, expected_city="Hamburg")
+    assert result.status == "nicht_gefunden"
 
 
 def test_mehrdeutig_zaehlt_echte_orte_nicht_rohe_trefferzahl():
@@ -411,10 +426,13 @@ def test_ortsname_mismatch_verwirft_sonst_passenden_kandidaten():
     assert result.status == "nicht_gefunden"
 
 
-def test_ortsname_abgleich_ist_exakt_keine_teilstring_toleranz():
+def test_ortsname_abgleich_erlaubt_teilstring_in_beide_richtungen():
+    # Seit Marco, 2026-08-19 (s. docs/FUNDE.md) bewusst KEIN exakter
+    # Vergleich mehr, s. test_lindenweg_neustadt_mit_wortlaut_eingabe_ist_
+    # mehrdeutig oben für die Begründung.
     kandidat = _result(address={"city": "Neustadt im Schwarzwald", "state": "Baden-Württemberg", "postcode": "79822", "country_code": "de"})
     result = parse_nominatim_results([kandidat], expected_postal_code=None, expected_city="Neustadt")
-    assert result.status == "nicht_gefunden"
+    assert result.status == "ok"
 
 
 def test_ortsname_abgleich_ignoriert_gross_kleinschreibung_und_leerraum():

@@ -881,11 +881,12 @@ def test_geocode_ausland_wien():
 
 def test_geocode_lindenweg_neustadt_aufgabenbeispiel():
     # ACHTUNG: "Lindenweg 3, Neustadt" ist eine der fünf echten Aufgaben-
-    # Beispieladressen (lead_nummer 13) - _verify_address_free() lässt
-    # diesen Test bewusst mit einem klaren Fehler abbrechen, solange dieser
-    # Lead noch aktiv ist, statt ihn zu überschreiben. Erst nach Marcos
-    # eigener Abnahme dieses Beispiels (oder wenn er ihn absichtlich
-    # umbenennt) hier erneut laufen lassen.
+    # Beispieladressen - _verify_address_free() lässt diesen Test bewusst
+    # mit einem klaren Fehler abbrechen, solange ein echter (nicht
+    # testlauf-%) Lead mit dieser Adresse aktiv ist, statt ihn zu
+    # überschreiben (genau das ist am 18.08. einmal fast passiert, s.
+    # docs/FUNDE.md). Erst laufen lassen, wenn kein echter Lead mehr diese
+    # Adresse belegt, oder Testadresse in diesem Fall ändern.
     street, city = "Lindenweg 3", "Neustadt"  # keine PLZ, wie im Aufgabenbeispiel
     _verify_address_free(street, city)
     token = str(uuid.uuid4())
@@ -900,16 +901,17 @@ def test_geocode_lindenweg_neustadt_aufgabenbeispiel():
     lead_final = db_fetch(lead["id"])
 
     expected = (
-        "Aufgabenbeispiel ohne PLZ: mit dem strengen Ortsnamen-Abgleich "
-        "(docs/FUNDE.md, mit Marco abgestimmt) 'nicht_gefunden', NICHT mehr "
-        "'mehrdeutig' wie vor der Korrektur - keiner von Nominatims "
-        "Kandidaten heißt exakt 'Neustadt' (sondern z.B. 'Neustadt im "
-        "Schwarzwald'). Bewusste, abgestimmte Verhaltensänderung, keine "
-        "Abweichung."
+        "Aufgabenbeispiel ohne PLZ: 'mehrdeutig' (drei Bundesländer -"
+        "Baden-Württemberg/Schleswig-Holstein/Sachsen, der eigentliche Sinn "
+        "dieses Beispiels). Ein zwischenzeitlich exakter Ortsnamen-Abgleich "
+        "(18.08.) hatte das kurz auf 'nicht_gefunden' verschärft, weil "
+        "keiner von Nominatims Kandidaten exakt 'Neustadt' heißt (sondern "
+        "z.B. 'Neustadt im Schwarzwald') - ein Rückschritt, am 19.08. durch "
+        "einen Enthalten-Vergleich (s. docs/FUNDE.md) wieder korrigiert."
     )
     actual = f"geocode_status={lead_final['geocode_status']!r}, traffic_light={lead_final['traffic_light']!r}"
-    match = lead_final["geocode_status"] == "nicht_gefunden" and lead_final["traffic_light"] == "rot"
-    record("Geocoding", "Aufgabenbeispiel Lindenweg 3, Neustadt (Verhalten geändert, mit Marco abgestimmt)", expected, actual, match)
+    match = lead_final["geocode_status"] == "mehrdeutig" and lead_final["traffic_light"] == "gelb"
+    record("Geocoding", "Aufgabenbeispiel Lindenweg 3, Neustadt", expected, actual, match)
 
 
 def test_ampel_ohne_telefon():
