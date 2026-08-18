@@ -498,7 +498,7 @@
         {{ wartende_leads }} Leads warten – jetzt verarbeiten
         {%- endif -%}
       </button>
-      <span class="hint" id="globaler-retry-status">Für den Ausnahmefall: wenn ein Dienst (Nominatim/Brevo) zwischenzeitlich ausgefallen war und sich dadurch mehrere Leads angesammelt haben. Verarbeitet nur Leads außerhalb des einstündigen Korrekturfensters (process_after, Konzept §G) — läuft sonst automatisch alle 15 Minuten per Cron. Für einen einzelnen frischen Lead stattdessen die Buttons „Geocoding“/„Mail“ in dessen Zeile verwenden.</span>
+      <span class="hint" id="globaler-retry-status">Verarbeitet liegengebliebene Leads außerhalb des Korrekturfensters. Läuft sonst automatisch alle 15 Minuten.</span>
     </div>
 
     {% if leads %}

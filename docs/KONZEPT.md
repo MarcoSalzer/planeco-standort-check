@@ -365,6 +365,19 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
   als visueller Ein-Blick-Check fürs Sales-Team.
 - Aktionen: Status ändern, assigned_to setzen, disqualify_reason, "Mail erneut
   senden", "Geocoding erneut", globaler Retry-Button.
+
+  **Globaler Retry-Button vs. Zeilen-Buttons [präzisiert, 2026-08-19]:** Der
+  globale Button ist für den Ausnahmefall gedacht — ein Dienst (Nominatim/
+  Brevo) war zwischenzeitlich ausgefallen, mehrere Leads sind liegen
+  geblieben. Er respektiert das Korrekturfenster (process_after, §G) und
+  verarbeitet deshalb nur Leads, deren Stunde bereits abgelaufen ist —
+  bei einem frisch eingegangenen Lead tut er bewusst nichts. Für den
+  Einzelfall (z.B. eine Demo, bei der ein frischer Lead sofort ein Ergebnis
+  zeigen soll) gibt es stattdessen die Buttons "Geocoding"/"Mail" in der
+  jeweiligen Zeile, die process_after bewusst übergehen. Die Oberfläche
+  zeigt dazu nur einen kurzen Hinweissatz plus die Zahl wartender Leads
+  am Button selbst ("3 Leads warten") — dieser Absatz hier ist die
+  ausführliche Erklärung, die in der UI keinen Platz hat.
 - Sortierung: Default älteste unbearbeitete zuerst (Morgen-Workflow), umschaltbar.
 - CSV-Export: Semikolon, UTF-8 BOM, Europe/Berlin, enthält alle Auswertungs- und
   Qualitätsspalten.
