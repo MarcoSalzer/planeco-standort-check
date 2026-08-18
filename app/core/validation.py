@@ -38,6 +38,15 @@ def validate_submission(
         errors["street"] = "Bitte Straße und Hausnummer angeben."
     if not _filled(city):
         errors["city"] = "Bitte Ort angeben."
+    elif city.strip().isdigit():
+        # Ort besteht ausschließlich aus Ziffern - typisches Anzeichen dafür,
+        # dass PLZ und Ort vertauscht eingetragen wurden (die PLZ landet dann
+        # im Ortsfeld, das eigentliche Ortsfeld bleibt leer). Ein Geocoding
+        # gegen eine Ziffernfolge als Ort läuft ins Leere, ohne dass der
+        # Interessent je erfährt, dass etwas falsch war (CLAUDE.md Regel 12:
+        # nicht raten, welcher Wert stimmt - stattdessen ablehnen und den
+        # Nutzer selbst korrigieren lassen).
+        errors["city"] = "Ort besteht nur aus Ziffern - vielleicht sind Ort und PLZ vertauscht?"
 
     if not _filled(email):
         errors["email"] = "Bitte E-Mail-Adresse angeben."

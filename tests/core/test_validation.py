@@ -28,6 +28,19 @@ def test_ungueltige_email_syntax():
     assert "email" in errors
 
 
+def test_ort_nur_ziffern_deutet_auf_plz_ort_vertauschung_hin():
+    errors = validate_submission(**_valid_kwargs(city="20095"))
+    assert "city" in errors
+
+
+def test_ort_mit_ziffern_und_buchstaben_ist_kein_fehler():
+    # Echte Ortsnamen mit Ziffern existieren (z.B. Nummernzusätze in
+    # zusammengesetzten Namen) - nur eine REINE Ziffernfolge ist der
+    # Verdachtsfall, nicht jede Ziffer im Ortsnamen.
+    errors = validate_submission(**_valid_kwargs(city="Sankt Peter-Ording 3"))
+    assert "city" not in errors
+
+
 def test_plz_zu_kurz_ist_ein_fehler():
     errors = validate_submission(**_valid_kwargs(postal_code="123"))
     assert "postal_code" in errors

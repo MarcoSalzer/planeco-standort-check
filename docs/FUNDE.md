@@ -470,3 +470,27 @@ sie durch diesen Fix erstmals korrekt (gestrippt) gelesen - bereits
 ausgestellte Admin-Sessions würden dadurch beim nächsten Deploy ungültig,
 ein erneutes Login wäre nötig. Kein Datenverlust, nur ein einmaliger
 Session-Reset.
+
+## Ort- und PLZ-Feld vertauscht, Geocoding lief unbemerkt ins Leere (`app/core/validation.py`)
+
+Marco meldete beim Testen: PLZ versehentlich ins Ortsfeld getippt, Ortsfeld
+leer gelassen. `validate_submission()` verlangt PLZ ohnehin nicht (optional,
+Konzept §3.1) und prüft `city` nur auf "irgendein Zeichen vorhanden" - eine
+reine Ziffernfolge im Ortsfeld ist damit ein gültiger Submit. Nominatim
+bekam als Ort z.B. "20095" statt "Hamburg" und fand strukturell nichts;
+das Ergebnis wäre `nicht_gefunden` oder `nur_ort`-Rückfall ohne Straße
+gewesen - dem Interessenten wie dem Sales-Team wäre nie aufgefallen, WARUM,
+weil die Vertauschung selbst nirgends sichtbar gemacht wurde. Derselbe
+Fehlertyp wie die übrigen Funde in diesem Dokument: ein falscher Zustand,
+der sich als scheinbar normales (nur eben negatives) Ergebnis tarnt, statt
+als das erkennbar zu werden, was er ist - eine Eingabevertauschung.
+
+Behoben in `validate_submission()`: `city` wird zusätzlich auf eine reine
+Ziffernfolge geprüft (`city.strip().isdigit()`) und mit 422 abgelehnt
+("Ort besteht nur aus Ziffern - vielleicht sind Ort und PLZ vertauscht?"),
+BEVOR das Geocoding je zu Gesicht bekommt, was falsch ist. Bewusst nur der
+Extremfall (Ort = ausschließlich Ziffern), keine Heuristik, die auch
+gemischte Fälle ("20095 Hamburg" in einem Feld) erkennen will - das wäre
+Raten über die genaue Absicht des Interessenten (CLAUDE.md Regel 12).
+Zwei Tests ergänzt: die Ziffernfolge wird abgelehnt, ein Ortsname mit
+enthaltenen Ziffern (z.B. ein Nummernzusatz) bleibt zulässig.
