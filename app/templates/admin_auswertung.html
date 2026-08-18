@@ -125,6 +125,13 @@
       border-bottom: 2px solid var(--border);
       white-space: nowrap;
     }
+    table.auswertung th[title], table.kreuztabelle th[title] {
+      cursor: help;
+      border-bottom-style: dotted;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 3px;
+    }
     table.auswertung td, table.kreuztabelle td {
       padding: 0.55rem 0.6rem;
       border-bottom: 1px solid var(--border);
@@ -137,7 +144,6 @@
     .basis-hinweis { display: block; font-weight: 400; font-size: 0.76rem; color: var(--muted); }
     td.quote { }
     td.quote.niedrige-basis { color: var(--muted); font-style: italic; }
-    .fussnote { font-size: 0.8rem; color: var(--muted); margin-top: 0.75rem; }
 
     .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
   </style>
@@ -157,10 +163,8 @@
     </nav>
 
     <div class="honesty-hint">
-      Basis insgesamt: {{ gesamt_anfragen }} Anfragen. Quoten unter {{ min_basis }} Anfragen sind grau/kursiv markiert
-      — bei so wenig Fällen ist eine Quote statistisch bedeutungslos und keine Grundlage für eine Kanalentscheidung.
-      Die Qualifizierungsquote hat eine andere Basis als die übrigen Prozentspalten: nur bereits entschiedene Fälle
-      (qualifiziert + disqualifiziert), nicht alle Anfragen — sie beantwortet "taugt der Kanal", nicht "wie sauber ist der Traffic".
+      Basis insgesamt: {{ gesamt_anfragen }} Anfragen. Quoten unter {{ min_basis }} Anfragen sind grau/kursiv
+      markiert und statistisch nicht aussagekräftig.
     </div>
 
     <h2 class="section-title">Nach Kanal, Kampagne, Selbstauskunft oder Bundesland</h2>
@@ -177,15 +181,15 @@
         <thead>
           <tr>
             <th>{{ gruppierungen[aktive_gruppierung][0] }}</th>
-            <th>Anfragen</th>
-            <th>Offen</th>
-            <th>Qualifiziert</th>
-            <th>Disqualifiziert</th>
-            <th>Qualifizierungsquote</th>
+            <th title="Jede Submission über diesen Kanal, auch Duplikate, Ersetzte und Spam.">Anfragen</th>
+            <th title="Nur der aktuelle Pipeline-Stand (ohne Duplikate, Ersetzt, Spam, Ausland) — summiert sich zusammen mit Qualifiziert/Disqualifiziert deshalb nicht zu Anfragen.">Offen</th>
+            <th title="Nur der aktuelle Pipeline-Stand (ohne Duplikate, Ersetzt, Spam, Ausland).">Qualifiziert</th>
+            <th title="Nur der aktuelle Pipeline-Stand (ohne Duplikate, Ersetzt, Spam, Ausland).">Disqualifiziert</th>
+            <th title="Basis sind nur bereits entschiedene Fälle (Qualifiziert + Disqualifiziert), nicht alle Anfragen.">Qualifizierungsquote</th>
             <th>Eigentümer-Anteil</th>
             <th>Ø Zeit bis Erstkontakt</th>
             <th>Telefon unlesbar %</th>
-            <th>Adresse unklar %</th>
+            <th title="Adresse mehrdeutig, nicht gefunden oder Geocoding fehlgeschlagen.">Adresse unklar %</th>
             <th>Spam %</th>
           </tr>
         </thead>
@@ -211,12 +215,6 @@
         </tbody>
       </table>
     </div>
-    <p class="fussnote">
-      "Anfragen" zählt jede Submission über diesen Kanal, auch Duplikate/Ersetzt/Spam (Volumenfrage). "Offen" +
-      "Qualifiziert" + "Disqualifiziert" summieren sich deshalb nicht zu "Anfragen" — das ist nur der echte
-      Pipeline-Stand ohne Duplikate/Ersetzt/Spam/Ausland (Pipeline-Frage). "Adresse unklar %" ist vor Phase 4
-      (Geocoding) für alle Kanäle 0%, weil noch nichts geprüft wurde — das ist Faktenlage, nicht Ergebnis.
-    </p>
     {% else %}
     <div class="empty-state"><p>Noch keine Leads für eine Auswertung.</p></div>
     {% endif %}
@@ -229,7 +227,7 @@
           <tr>
             <th>Kanal</th>
             {% for b in kreuztabelle.bundeslaender %}
-            <th>{{ b }}</th>
+            <th {% if b == '(keine Angabe)' %}title="Bundesland nicht ermittelt, z.B. weil das Geocoding noch aussteht oder fehlschlug."{% endif %}>{{ b }}</th>
             {% endfor %}
           </tr>
         </thead>
@@ -245,9 +243,6 @@
         </tbody>
       </table>
     </div>
-    <p class="fussnote">
-      Bundesland kommt aus dem Geocoding (Phase 4, noch nicht gebaut) — bis dahin läuft alles unter "(keine Angabe)".
-    </p>
     {% else %}
     <div class="empty-state"><p>Noch keine Leads für eine Kreuztabelle.</p></div>
     {% endif %}
