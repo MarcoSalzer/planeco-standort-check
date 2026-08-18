@@ -183,33 +183,73 @@ Konzept §3.1 nachgezogen, drei neue Tests in `tests/core/test_validation.py`.
 
 192 Tests, alle grün: `.venv/bin/python -m pytest -q`.
 
-### Nächste Schritte, in dieser Reihenfolge
+### Nächste Schritte, in dieser Reihenfolge [Stand 19.08., überholt die Fassung oben]
 
-1. **Automatisierter Testlauf.** `scripts/testlauf.py` ist um die Phase-5-
-   Fälle erweitert und jetzt mit `_verify_address_free()` abgesichert (s.
-   Zwischenfall oben), aber **seit der Absicherung noch nicht wieder
-   gegen die Datenbank gelaufen** - das war der nächste Schritt, als diese
-   Session voll wurde. Vorher: zweiten Terminal mit
-   `.venv/bin/uvicorn app.main:app --port 8731` starten, dann
-   `PYTHONPATH=. .venv/bin/python scripts/testlauf.py`. Ergebnis nach
-   `docs/TESTLAUF.md` geschrieben, Abweichungen NICHT selbst reparieren,
-   Marco vorlegen (bestehende Regel des Skripts, s. dessen Docstring).
-   Ein bekannter, schon vorab dokumentierter Fall ist NICHT als Abweichung
-   zu werten: "Lindenweg 3, Neustadt" ergibt jetzt bewusst `nicht_gefunden`
-   statt `mehrdeutig` (s. oben, mit Marco abgestimmt).
-2. **Danach: alle Leads vollständig löschen.** Marcos Vorgabe: am Ende
-   sollen ausschließlich die fünf Beispielanfragen aus der Aufgabe plus
-   die Fälle, die er für die Demo braucht, in der Datenbank stehen. Dabei
-   den Nebenfund oben (23 Zeilen erkennbarer Alt-Testmüll aus früheren
-   Sessions) mit einbeziehen - Marco vorher zeigen/fragen, nicht
-   eigenmächtig entscheiden, was von den fünf "echten" Beispielen und was
-   Müll ist (aktuell z.B. unklar, ob `lead_nummer` 12-15 die finalen
-   offiziellen Beispiele sind oder nur informelle Vorab-Tests, die Marco
-   ohnehin nochmal "vom Handy" einreichen wollte, s. Phase 5 unten).
-3. **PLZ-Validierungsfund entscheiden** (s. oben) - reparieren oder als
-   Scope-Cut dokumentieren.
-4. Danach Phase 5 (Abnahme) und Phase 6 (Notizen & Abgabe) unten, wie
-   ursprünglich geplant.
+Überholt durch den tatsächlichen Ablauf: Marco hat die Datenbank am 19.08.
+vollständig geleert (leads/lead_events/usage_counters, `lead_nummer_seq`
+auf 1 zurückgesetzt - der alte Testmüll aus Punkt 2 unten ist damit
+erledigt) und die fünf Beispielanfragen direkt über das echte Formular
+live eingetippt (Vercel), statt vorher nochmal `scripts/testlauf.py`
+laufen zu lassen - der automatisierte Testlauf blieb dadurch bewusst aus
+(hätte ohnehin mit genau diesen Adressen kollidiert, s.
+`_verify_address_free()`). Die PLZ-Validierung wurde repariert (s.
+"Sonstiges, noch offen" unten), die fünf Punkte aus der anschließenden
+Abnahme sind bearbeitet (s. "Abnahme-Rückmeldung 19.08." unten).
+
+**Aktueller Stand:** Bau laut Marco abgeschlossen. Übrig: Phase 5
+(verbleibende manuelle Prüfpunkte durchgehen, s. Checkliste unten - viele
+Punkte sind mit den fünf Beispielanfragen bereits mitgeprüft) und Phase 6
+(NOTES.md, README, Repo-Hygiene, Abgabe).
+
+### Abnahme-Rückmeldung 19.08. (fünf Punkte) — danach Bau abgeschlossen
+
+Marco hat die fünf Beispielanfragen live eingetippt (Vercel) und fünf
+Punkte zurückgemeldet, alle bearbeitet:
+
+1. **Rückschritt behoben:** Der am 18.08. eingeführte exakte
+   Ortsnamen-Abgleich (s. "Geocoding: aktueller technischer Stand" oben)
+   ließ "Neustadt" nicht mehr auf "Neustadt im Schwarzwald" passen -
+   "Lindenweg 3, Neustadt" (Aufgabenbeispiel) fiel dadurch von
+   `mehrdeutig` (drei Bundesländer, der eigentliche Sinn des Beispiels)
+   auf `nicht_gefunden`. Nach demselben Prinzip wie andere Funde in
+   diesem Projekt: die vorherige Verschärfung war selbst der Fehler, kein
+   Fortschritt. Jetzt Enthalten-Vergleich (`app/core/geocoding.py::
+   _ort_stimmt_ueberein`) statt exaktem Vergleich - live gegen die echte
+   API erneut geprüft (ohne DB-Schreibzugriff, um die gerade eingetippten
+   echten Leads nicht zu gefährden): Lindenweg/Neustadt wieder
+   `mehrdeutig` (3 Kandidaten), Groß Grönau weiterhin `nur_ort`, Hamburg
+   mit falscher PLZ weiterhin `plz_abweichend`, Wien weiterhin `ausland` -
+   PLZ-Abweichungs-Logik unberührt, da sie unabhängig vom Ortsnamen-Filter
+   erst am gewählten Kandidaten prüft.
+2. **"Nur per E-Mail erreichbar" trotz eingegebener Telefonnummer -
+   ungeklärt.** DB read-only geprüft: alle vier realen Beispiel-Leads
+   (Ahrens/Beckmann/Ruthenberg/Klöpper) haben `phone_valid=true` und einen
+   korrekt normalisierten `phone_e164`. Die einzigen zwei Zeilen mit
+   dieser Ampel-Meldung heißen `name='Testlauf'` und haben `phone_raw=NULL`
+   (kein Telefon eingegeben, nicht nur ungültig), mit Zeitstempeln vor der
+   eigentlichen Beispielanfragen-Serie - vermutlich ein separater,
+   bewusster Test des Phase-5-Punkts "Lead ohne Telefon". **Nicht
+   reproduzierbar mit den aktuellen Daten** - falls das doch einen der
+   fünf Leads betrifft, bitte Lead-Nummer/Namen nennen.
+3. **Hinweistext gekürzt** wie vorgegeben ("Verarbeitet liegengebliebene
+   Leads außerhalb des Korrekturfensters. Läuft sonst automatisch alle 15
+   Minuten."). Die ausführliche Begründung (Ausnahmefall, Bezug zu den
+   Zeilen-Buttons) jetzt in `docs/KONZEPT.md` §6 statt in der Oberfläche.
+4. **`expansion_opt_in` umbenannt zu `marketing_opt_in`** (Migration
+   `0014_marketing_opt_in.sql`) - der Name passte nicht mehr zum
+   allgemeinen Formulartext ("neue Angebote und Entwicklungen"). Die
+   Auslandsmail selbst reflektiert weiterhin gezielt den Regionsbezug,
+   dort ist der Kontext (Ausland erkannt) klar.
+5. **Bewusst nicht umgesetzt: Rückschreiben telefonisch bestätigter
+   Adressdaten.** Bei drei der fünf Beispieladressen stimmten die
+   Angaben nicht (falsche PLZ, eine in OpenStreetMap fehlende Straße, ein
+   mehrdeutiger Ortsname) - das System erkennt und markiert das
+   zuverlässig (Ampel gelb/rot mit konkretem Grund), bietet aber keinen
+   Weg, eine im Telefonat geklärte, bestätigte Adresse zurück in den Lead
+   zu schreiben. Eine Prüfliste je Lead ("Adresse mit Kunde bestätigt: ja/
+   nein") plus ein eigenes Feld für die bestätigte Adresse wären der
+   nächste Schritt - bewusst nicht gebaut (Zeitrahmen des Case), aber ein
+   echter, im Live-Betrieb sofort spürbarer nächster Ausbauschritt.
 
 ### Sonstiges, noch offen (kein Bauauftrag, nur Diese-Woche-Erinnerung)
 
