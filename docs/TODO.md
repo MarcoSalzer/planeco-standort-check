@@ -109,17 +109,15 @@ jetzt `nicht_gefunden` statt `mehrdeutig`, weil keiner von Nominatims
 Kandidaten exakt "Neustadt" heißt (sondern z.B. "Neustadt im
 Schwarzwald"). Bewusst nicht auf Teilstring-Toleranz aufgeweicht.
 
-### Offener Fund: PLZ-Validierung blockiert echte ausländische Postleitzahlen
+### ✅ Erledigt: PLZ-Validierung blockierte echte ausländische Postleitzahlen
 
-`validate_submission()` verlangt bei angegebener PLZ 5 Stellen (deutsches
-Format). Eine Wien-Testabgabe mit PLZ "1010" (vierstellig, österreichisch,
-korrekt) scheiterte deshalb mit 422 an der Formular-Validierung - ein
-echter ausländischer Interessent kann seine reale PLZ aktuell gar nicht
-eintragen, nur weglassen (PLZ ist optional, das rettet den Submit, ist
-aber keine saubere Lösung). Noch nicht repariert, noch nicht mit Marco
-besprochen - vor Abgabe entscheiden: eigene, laxere Prüfung für
-erkennbar nicht-deutsche Adressen, oder als dokumentierte Einschränkung
-in NOTES.md.
+`validate_submission()` verlangte bei angegebener PLZ 5 Stellen (deutsches
+Format) - eine Wien-Testabgabe mit PLZ "1010" (vierstellig, österreichisch,
+korrekt) scheiterte deshalb mit 422. Mit Marco entschieden (2026-08-18):
+gelockert auf 4-10 Zeichen, Ziffern und Buchstaben erlaubt (deckt auch
+alphanumerische Formate wie NL/GB ab); die inhaltliche Prüfung übernimmt
+ohnehin das Geocoding (`plz_abweichend`). `app/core/validation.py`,
+Konzept §3.1 nachgezogen, drei neue Tests in `tests/core/test_validation.py`.
 
 ### Was in dieser Session sonst noch fertig wurde (nach den "Nächste Schritte" der vorherigen Übergabe)
 
@@ -215,17 +213,17 @@ in NOTES.md.
 
 ### Sonstiges, noch offen (kein Bauauftrag, nur Diese-Woche-Erinnerung)
 
-- **F2-Mailtext:** enthält einen Gedankenstrich ("... vorliegenden
-  Anfrage — es hat sich nichts geändert."), `app/mail.py`,
-  `_INTRO_TEXT_BY_CASE[DedupCase.F2_DUPLIKAT]`. Vor Abgabe gegenlesen.
+- **F2-Mailtext gegengelesen (2026-08-18):** `app/mail.py`,
+  `_INTRO_TEXT_BY_CASE[DedupCase.F2_DUPLIKAT]` - Gedankenstrich korrekt
+  gesetzt, Text liest sich sauber. Kein Änderungsbedarf.
 - **CSV noch nicht in Excel geöffnet** (Marco macht das selbst).
-- **`app/config.py`-Docstring veraltet** ("wird von nichts importiert" -
-  stimmt nicht mehr, wird inzwischen von mehreren Modulen importiert).
-  Kleinkram, bei Gelegenheit korrigieren.
-- **MX-Prüfung/Tippfehler-Vorschlag bei E-Mail** (Konzept §D) - weiterhin
-  bewusst nicht eingebaut, vor Abgabe entscheiden: einbauen oder als
-  Scope-Cut in NOTES.md dokumentieren (unverändert seit der letzten
-  Übergabe).
+- **`app/config.py`-Docstring war bereits korrigiert** (2026-08-18 geprüft:
+  die beanstandete Zeile "wird von nichts importiert" existiert im aktuellen
+  Docstring nicht mehr, laut `git log` schon im zweiten Commit des Moduls
+  ersetzt - dieser TODO-Punkt war selbst veraltet).
+- **MX-Prüfung/Tippfehler-Vorschlag bei E-Mail** (Konzept §D) - Scope-Cut,
+  mit Marco entschieden (2026-08-18): nicht bauen, Begründung in NOTES.md
+  (Phase 6) dokumentieren.
 
 ## Phase 0 — Konzept fixieren (Chat) ✅ weitgehend
 - [x] Datenmodell + Pipeline + Risiken (KONZEPT v2)
