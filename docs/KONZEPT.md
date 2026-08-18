@@ -565,7 +565,10 @@ darf aber nicht warten.
 - Hinweis, dass die Leistung derzeit auf Deutschland beschränkt ist.
 - Angebot, sich zu melden, sobald der Dienst im DACH-Raum verfügbar ist —
   als **aktive Zustimmung**, nicht automatisch: ein Antwort-Satz genügt, oder ein
-  Häkchen bereits im Formular ("Bitte informieren Sie mich über neue Regionen").
+  Häkchen bereits im Formular (ursprünglich "Bitte informieren Sie mich über neue
+  Regionen" — bei Implementierung korrigiert, 2026-08-19, s. u.: das Formular weiß
+  beim Ausfüllen noch nicht, dass die Adresse später als Ausland erkannt wird, der
+  Regionsbezug ergab für die meisten Ausfüllenden keinen Sinn).
 - **Keine automatische Weitergabe an Partner.** Eine Datenweitergabe an ein
   Drittunternehmen braucht eine eigene Rechtsgrundlage (DSGVO Art. 6); die Zustimmung
   vom Standort-Check deckt sie nicht ab. Formulierung stattdessen: "Auf Wunsch
@@ -573,7 +576,11 @@ darf aber nicht warten.
   Damit entsteht die Einwilligung durch die Antwort des Interessenten.
 
 Das ist zugleich ein guter Notizen-Punkt: erkannte Rechtsgrenze, sauber gelöst statt
-ignoriert. Feld `expansion_opt_in boolean` im Formular (optional, unauffällig).
+ignoriert. Feld `expansion_opt_in boolean` im Formular (optional, unauffällig)
+[umbenannt zu `marketing_opt_in`, 2026-08-19, Migration `0014_marketing_opt_in.sql`
+- allgemeines Marketing-Opt-in im Formular ("neue Angebote und Entwicklungen"),
+nur die Auslandsmail selbst reflektiert weiterhin gezielt den Regionsbezug, wenn
+gesetzt, weil dort der Kontext klar ist].
 
 ## B. Ampel: exakte Regeln und Anzeigetexte [neu]
 
@@ -715,6 +722,10 @@ alter table leads add column traffic_light text;               -- abgeleitet, ge
 alter table leads add column traffic_light_reason text;
 -- status-check erweitern um 'ausland'
 ```
+
+`expansion_opt_in` seit 2026-08-19 umbenannt zu `marketing_opt_in`
+(Migration `0014_marketing_opt_in.sql`, s. §A) - reiner Rename, keine
+Verhaltensänderung an dieser Stelle.
 
 `traffic_light` wird bei jedem Schreibvorgang neu berechnet und gespeichert, damit
 Sortierung und CSV-Export ohne Neuberechnung funktionieren. Die Ableitung liegt als

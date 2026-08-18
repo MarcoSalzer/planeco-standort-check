@@ -63,13 +63,17 @@ _INTRO_TEXT_BY_CASE = {
 }
 
 # Auslandshinweis-Mail (Konzept §A): zweite, separate Mail bei
-# in_service_area=false. Zwei Varianten je nachdem, ob expansion_opt_in
-# beim Absenden schon gesetzt war (Marco, 2026-08-18) - wer das Formular-
-# Häkchen "Bitte informieren Sie mich über neue Regionen" bereits gesetzt
-# hat, hat die Region-Info bereits angefordert; der Text bestätigt das,
-# statt identisch noch einmal danach zu fragen. Das Partner-Vermittlungs-
-# Angebot bleibt in beiden Fällen eine Antwort-Aufforderung, nie
-# automatisch (Konzept §A: "keine automatische Weitergabe an Partner").
+# in_service_area=false. Zwei Varianten je nachdem, ob marketing_opt_in
+# beim Absenden schon gesetzt war (Marco, 2026-08-18, Feld seit 2026-08-19
+# allgemein umbenannt - im Formular selbst ist zu diesem Zeitpunkt nicht
+# bekannt, dass die Adresse später als Ausland erkannt wird, das Häkchen
+# heißt dort bewusst allgemein "neue Angebote und Entwicklungen") - wer es
+# gesetzt hat, hat allgemeines Interesse bekundet; der Auslandstext hier
+# reflektiert gezielt den Regionsbezug, weil der Kontext an dieser Stelle
+# (Ausland erkannt) klar ist, statt identisch noch einmal danach zu fragen.
+# Das Partner-Vermittlungs-Angebot bleibt in beiden Fällen eine Antwort-
+# Aufforderung, nie automatisch (Konzept §A: "keine automatische
+# Weitergabe an Partner").
 _AUSLAND_ANGEBOT_TEXT_STANDARD = (
     "Sobald der Standort-Check in Ihrer Region verfügbar ist, können wir Sie "
     "informieren. Und wenn Sie möchten, vermitteln wir Sie an einen Partner vor "
@@ -253,7 +257,7 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCas
 
 def _render_auslandshinweis_email(data: NewLeadData) -> tuple[str, str]:
     anrede = f"Hallo {data.name}," if data.name else "Hallo,"
-    angebot_text = _AUSLAND_ANGEBOT_TEXT_OPT_IN if data.expansion_opt_in else _AUSLAND_ANGEBOT_TEXT_STANDARD
+    angebot_text = _AUSLAND_ANGEBOT_TEXT_OPT_IN if data.marketing_opt_in else _AUSLAND_ANGEBOT_TEXT_STANDARD
 
     template = _env.get_template("email_auslandshinweis.html")
     html = template.render(

@@ -102,13 +102,13 @@ def form(request: Request):
                     heard_about=current["heard_about"] or "",
                     message=current["message"] or "",
                 )
-                # expansion_opt_in ist wie privacy_accepted ein Checkbox-Feld,
+                # marketing_opt_in ist wie privacy_accepted ein Checkbox-Feld,
                 # kein Text - separat gesetzt statt über _VALUE_FIELDS/
                 # _empty_values() (dieselbe Behandlung wie privacy_accepted
-                # unten), damit ein vorheriges "Bitte informieren Sie mich
-                # über neue Regionen" beim Korrigieren erhalten bleibt statt
-                # beim erneuten Absenden stillschweigend zu verschwinden.
-                values["expansion_opt_in"] = bool(current["expansion_opt_in"])
+                # unten), damit ein vorheriges Häkchen beim Korrigieren
+                # erhalten bleibt statt beim erneuten Absenden
+                # stillschweigend zu verschwinden.
+                values["marketing_opt_in"] = bool(current["marketing_opt_in"])
 
     values.update(
         utm_source=request.query_params.get("utm_source") or "",
@@ -176,7 +176,7 @@ async def submit(request: Request):
     heard_about = field("heard_about") or None
     message = field("message") or None
     privacy_accepted = form_data.get("privacy_accepted") == "on"
-    expansion_opt_in = form_data.get("expansion_opt_in") == "on"
+    marketing_opt_in = form_data.get("marketing_opt_in") == "on"
 
     honeypot_raw = form_data.get("website")
     honeypot_value = honeypot_raw if isinstance(honeypot_raw, str) else None
@@ -214,7 +214,7 @@ async def submit(request: Request):
         landing_page=field("landing_page") or "",
     )
     values["privacy_accepted"] = privacy_accepted
-    values["expansion_opt_in"] = expansion_opt_in
+    values["marketing_opt_in"] = marketing_opt_in
 
     errors = validate_submission(
         street=street,
@@ -350,7 +350,7 @@ async def submit(request: Request):
         is_spam=is_spam,
         spam_reason=spam_reason,
         privacy_accepted_at=submitted_at,
-        expansion_opt_in=expansion_opt_in,
+        marketing_opt_in=marketing_opt_in,
     )
 
     unexpected_fields = {"heard_about": heard_about} if heard_about_unerwartet else {}

@@ -1058,7 +1058,7 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
             ("Letzter Fehler", _text(row["email_last_error"])),
             ("Gesendet am", _dt(row["email_sent_at"])),
             ("Auslandshinweis-Status", status_label(row["ausland_hinweis_status"])),
-            ("Interesse an Erweiterung ins Ausland", _ja_nein(row["expansion_opt_in"])),
+            ("Marketing-Opt-in (neue Angebote/Entwicklungen)", _ja_nein(row["marketing_opt_in"])),
         ]),
         ("Geocoding", [
             ("Status", status_label(row["geocode_status"])),
