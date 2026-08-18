@@ -369,6 +369,30 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
 - CSV-Export: Semikolon, UTF-8 BOM, Europe/Berlin, enthält alle Auswertungs- und
   Qualitätsspalten.
 
+**Bewusste Entscheidung: keine Dateneingabe-Felder editierbar außer Status
+und assigned_to [Marco, 2026-08-19].** Straße/PLZ/Ort/E-Mail/Telefon/Name und
+alle übrigen vom Interessenten übermittelten Angaben lassen sich im Dashboard
+nirgends direkt ändern — auch nicht in der Detailansicht. Nur die beiden
+internen Sales-Workflow-Felder (`status`, `assigned_to`, dazu `disqualify_reason`
+als Beleg für einen Statuswechsel) sind editierbar.
+
+Begründung: Ein Datenfeld hat im aktuellen Modell genau zwei mögliche Quellen —
+entweder es ist Selbstauskunft des Interessenten (aus dem Formular, ggf. über
+eine F3-Korrektur mit vollständiger Historie, §4) oder es wäre eine interne
+Korrektur durch Sales. Ein direktes Editierfeld im Dashboard würde diese
+Unterscheidung aufheben: eine nachträglich im Dashboard geänderte Telefonnummer
+sieht in der Datenbank identisch aus wie eine vom Kunden selbst übermittelte —
+nicht mehr rekonstruierbar, ob der Interessent das je so angegeben hat oder ob
+jemand intern "korrigiert" hat, was er verstanden zu haben glaubte. Genau für
+den Fall, dass eine Angabe falsch oder unvollständig ist, existiert bereits ein
+sauberer Weg mit vollständiger Nachvollziehbarkeit: der Korrektur-Link (§G) bzw.
+ein erneutes Absenden durch den Interessenten selbst (§4/F3) — beides erzeugt
+einen neuen, datierten Datensatz mit Feld-Diff im Event `ersetzt`, statt eine
+bestehende Zeile stillschweigend zu überschreiben. Ein Dashboard-Editierfeld
+für Sachdaten wäre ein zweiter, ungeprotokollierter Weg zum selben Ziel und
+würde R21 (Feld-Merge übernimmt ggf. veraltete Werte) nicht lösen, sondern nur
+eine neue, schlechter nachvollziehbare Variante desselben Problems schaffen.
+
 ## 7. Auswertung im Dashboard [v3 — eigener Tab, ersetzt "nur CSV"]
 
 Pflichtteil 6 verlangt beurteilen zu können, welche Kanäle Anfragen bringen **und
