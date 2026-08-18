@@ -7,18 +7,15 @@ docs/FUNDE.md zu SERVICE_AREA_STATES/PROCESS_DELAY_MINUTES). Die eigentliche
 Durchsetzung (Dry-Run-Zweige, Zähler in usage_counters, serielle
 Nominatim-Anfragen) liegt in app/mail.py und app/retry.py.
 """
-import os
+from app.env import get_env, require_env
 
 
 def _bool_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+    return (get_env(name) or "").lower() in ("1", "true", "yes", "on")
 
 
 def _required_int_env(name: str) -> int:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"{name} ist nicht gesetzt.")
-    return int(value)
+    return int(require_env(name))
 
 
 DRY_RUN_EMAIL = _bool_env("DRY_RUN_EMAIL")

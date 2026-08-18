@@ -10,7 +10,6 @@ Tageslimit (usage_counters, DB-geführt statt Prozessspeicher) -> DRY_RUN_EMAIL
 (volle Logik, kein echter Versand) -> echter Versand über Brevo.
 """
 import logging
-import os
 import pathlib
 from datetime import datetime, timezone
 
@@ -23,6 +22,7 @@ from app.core.dedup import DedupCase
 from app.core.display import CONTACT_TIME_LABELS, format_address
 from app.core.edit_token import generate_edit_token
 from app.db import insert_event as _insert_event
+from app.env import get_env, require_env
 from app.submission import NewLeadData
 
 logger = logging.getLogger(__name__)
@@ -117,14 +117,14 @@ def send_confirmation_email(
             "https://api.brevo.com/v3/smtp/email",
             timeout=BREVO_TIMEOUT_SECONDS,
             headers={
-                "api-key": os.environ["BREVO_API_KEY"],
+                "api-key": require_env("BREVO_API_KEY"),
                 "content-type": "application/json",
                 "accept": "application/json",
             },
             json={
                 "sender": {
-                    "email": os.environ["BREVO_SENDER_EMAIL"],
-                    "name": os.environ.get("BREVO_SENDER_NAME") or "Standort-Check",
+                    "email": require_env("BREVO_SENDER_EMAIL"),
+                    "name": get_env("BREVO_SENDER_NAME") or "Standort-Check",
                 },
                 "to": [{"email": data.email}],
                 "subject": subject,
@@ -185,14 +185,14 @@ def send_auslandshinweis_email(conn: psycopg.Connection, lead_id: str, data: New
             "https://api.brevo.com/v3/smtp/email",
             timeout=BREVO_TIMEOUT_SECONDS,
             headers={
-                "api-key": os.environ["BREVO_API_KEY"],
+                "api-key": require_env("BREVO_API_KEY"),
                 "content-type": "application/json",
                 "accept": "application/json",
             },
             json={
                 "sender": {
-                    "email": os.environ["BREVO_SENDER_EMAIL"],
-                    "name": os.environ.get("BREVO_SENDER_NAME") or "Standort-Check",
+                    "email": require_env("BREVO_SENDER_EMAIL"),
+                    "name": get_env("BREVO_SENDER_NAME") or "Standort-Check",
                 },
                 "to": [{"email": data.email}],
                 "subject": subject,
@@ -212,7 +212,7 @@ def send_auslandshinweis_email(conn: psycopg.Connection, lead_id: str, data: New
 
 
 def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCase) -> tuple[str, str]:
-    edit_token = generate_edit_token(lead_id, os.environ["EDIT_TOKEN_SECRET"])
+    edit_token = generate_edit_token(lead_id, require_env("EDIT_TOKEN_SECRET"))
     edit_url = f"{base_url.rstrip('/')}/?k={edit_token}"
 
     anrede = f"Hallo {data.name}," if data.name else "Hallo,"
@@ -245,8 +245,8 @@ def _render_email(data: NewLeadData, lead_id: str, base_url: str, case: DedupCas
         summary_rows=summary_rows,
         edit_url=edit_url,
         erwartung_text=erwartung_text,
-        kontakt_email=os.environ.get("KONTAKT_EMAIL") or "",
-        kontakt_telefon=os.environ.get("KONTAKT_TELEFON") or "",
+        kontakt_email=get_env("KONTAKT_EMAIL") or "",
+        kontakt_telefon=get_env("KONTAKT_TELEFON") or "",
     )
     return "Ihre Anfrage beim Standort-Check", html
 
@@ -259,8 +259,8 @@ def _render_auslandshinweis_email(data: NewLeadData) -> tuple[str, str]:
     html = template.render(
         anrede=anrede,
         angebot_text=angebot_text,
-        kontakt_email=os.environ.get("KONTAKT_EMAIL") or "",
-        kontakt_telefon=os.environ.get("KONTAKT_TELEFON") or "",
+        kontakt_email=get_env("KONTAKT_EMAIL") or "",
+        kontakt_telefon=get_env("KONTAKT_TELEFON") or "",
     )
     # Eigener Betreff (nicht identisch zur Bestätigungsmail), damit die
     # beiden Mails im Posteingang des Interessenten unterscheidbar sind.

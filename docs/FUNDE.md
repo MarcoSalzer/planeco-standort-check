@@ -430,3 +430,43 @@ prüfte der Test gegen eine veraltete Erwartung - eine Prüfung, die nicht am
 aktuellen Stand hängt, veraltet lautlos mit, unabhängig davon, ob sie im
 Anwendungscode oder im Testcode steht. Testerwartung korrigiert
 (`heard_about=None`, `channel='direkt'`, Event-Nachweis statt Rohwert-Nachweis).
+
+## Env-Variable mit Trailing-Newline legte den Mailversand lahm (`app/mail.py`, alle Env-Lesestellen)
+
+Marco meldete beim Testen gegen die echte Vercel-Instanz: die Bestätigungsmail
+schlug mit `Illegal header value` fehl. Ursache: `BREVO_API_KEY` enthielt in
+Vercels Env-Konfiguration einen Zeilenumbruch am Ende - vermutlich aus der
+Zwischenablage beim Einfügen mitkopiert. `os.environ["BREVO_API_KEY"]` gab den
+Wert unverändert inklusive `\n` zurück, `httpx` verweigerte den daraus gebauten
+HTTP-Header mit genau dieser Meldung. Anders als bei den in diesem Dokument
+bereits mehrfach behandelten Konfigurationsfunden (`SERVICE_AREA_STATES=alle`,
+`PROCESS_DELAY_MINUTES` ohne Wirkung) war der falsche Wert hier nicht mal
+optisch von einem korrekten zu unterscheiden - ein Zeilenumbruch am Ende
+eines Copy&Paste-Werts ist in den meisten Eingabefeldern unsichtbar.
+
+Marco reparierte den Wert selbst in Vercel, aber die eigentliche Lücke war
+strukturell: JEDE Stelle im Code, die `os.environ` direkt liest, war für
+denselben Fehlertyp anfällig, nicht nur `BREVO_API_KEY` - DATABASE_URL,
+SESSION_SECRET, ADMIN_PASSWORD_HASH, EDIT_TOKEN_SECRET, RETRY_SECRET,
+SERVICE_AREA_STATES, NOMINATIM_USER_AGENT, KONTAKT_EMAIL/-TELEFON und alle
+Kontingent-Werte in `app/config.py` (11 Lesestellen über 6 Module). Ein
+Trailing-Newline in `SESSION_SECRET` z.B. hätte nicht mal einen sichtbaren
+Fehler erzeugt, sondern nur dazu geführt, dass Admin-Logins nach jedem
+Neustart unterschiedlich signierte Cookies bekommen - ein stiller, schwer
+zu diagnostizierender Fehler, derselbe Grundtyp wie die übrigen Funde in
+diesem Dokument (eine falsche Konfiguration, die sich nicht sofort als
+Fehler zeigt).
+
+Behoben zentral statt punktuell: `app/env.py` mit `get_env()`/`require_env()`
+- beide strippen jeden gelesenen Wert, bevor er den Aufrufer erreicht. Alle
+Lesestellen in `app/config.py`, `app/db.py`, `app/mail.py`, `app/main.py`,
+`app/geocoding.py`, `app/admin.py` darauf umgestellt, kein Modul liest
+`os.environ` mehr direkt. Mit `monkeypatch.setenv` getestet (Whitespace/
+Newline am Rand entfernt, interner Whitespace bleibt erhalten - z.B. eine
+Telefonnummer mit Leerzeichen in `KONTAKT_TELEFON` darf nicht verstümmelt
+werden). Nebenwirkung, mit Marco nicht weiter abgestimmt, aber erwähnenswert:
+falls `SESSION_SECRET` auf Vercel selbst einen Trailing-Newline enthält, wird
+sie durch diesen Fix erstmals korrekt (gestrippt) gelesen - bereits
+ausgestellte Admin-Sessions würden dadurch beim nächsten Deploy ungültig,
+ein erneutes Login wäre nötig. Kein Datenverlust, nur ein einmaliger
+Session-Reset.

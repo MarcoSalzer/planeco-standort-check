@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 from datetime import datetime, timezone
 
@@ -28,6 +27,7 @@ from app.core.normalize import (  # noqa: E402
 from app.core.spam import detect_spam  # noqa: E402
 from app.core.validation import validate_submission  # noqa: E402
 from app.db import get_connection  # noqa: E402
+from app.env import get_env  # noqa: E402
 from app.mail import send_confirmation_email  # noqa: E402
 from app.submission import NewLeadData, persist_submission, resolve_current_lead  # noqa: E402
 from app.templating import templates  # noqa: E402
@@ -80,7 +80,7 @@ def form(request: Request):
 
     edit_token = request.query_params.get("k")
     if edit_token:
-        secret = os.environ.get("EDIT_TOKEN_SECRET")
+        secret = get_env("EDIT_TOKEN_SECRET")
         lead_id = verify_edit_token(edit_token, secret) if secret else None
         if secret is None:
             logger.warning("EDIT_TOKEN_SECRET nicht gesetzt - Korrektur-Link kann nicht geprüft werden")
@@ -127,15 +127,15 @@ def form(request: Request):
         "submission_token": str(uuid.uuid4()),
         "form_rendered_at": datetime.now(timezone.utc).isoformat(),
         "heard_about_options": HEARD_ABOUT_OPTIONS,
-        "kontakt_email": os.environ.get("KONTAKT_EMAIL") or None,
-        "kontakt_telefon": os.environ.get("KONTAKT_TELEFON") or None,
+        "kontakt_email": get_env("KONTAKT_EMAIL") or None,
+        "kontakt_telefon": get_env("KONTAKT_TELEFON") or None,
     }
     return templates.TemplateResponse(request=request, name="form.html", context=context)
 
 
 @app.get("/datenschutz")
 def datenschutz(request: Request):
-    context = {"kontakt_email": os.environ.get("KONTAKT_EMAIL") or None}
+    context = {"kontakt_email": get_env("KONTAKT_EMAIL") or None}
     return templates.TemplateResponse(request=request, name="datenschutz.html", context=context)
 
 
@@ -231,8 +231,8 @@ async def submit(request: Request):
             "submission_token": str(uuid.uuid4()),
             "form_rendered_at": datetime.now(timezone.utc).isoformat(),
             "heard_about_options": HEARD_ABOUT_OPTIONS,
-            "kontakt_email": os.environ.get("KONTAKT_EMAIL") or None,
-            "kontakt_telefon": os.environ.get("KONTAKT_TELEFON") or None,
+            "kontakt_email": get_env("KONTAKT_EMAIL") or None,
+            "kontakt_telefon": get_env("KONTAKT_TELEFON") or None,
         }
         return templates.TemplateResponse(
             request=request, name="form.html", context=context, status_code=422
@@ -347,7 +347,7 @@ async def submit(request: Request):
             # alles andere (z.B. ein DB-Fehler beim Status-Update selbst).
             logger.exception("Bestätigungsmail-Schritt fehlgeschlagen für Lead %s", result.lead_id)
 
-    secret = os.environ.get("EDIT_TOKEN_SECRET")
+    secret = get_env("EDIT_TOKEN_SECRET")
     danke_url = "/danke"
     if secret:
         danke_url = f"/danke?k={generate_edit_token(result.lead_id, secret)}"

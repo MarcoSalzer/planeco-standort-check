@@ -7,7 +7,6 @@ Secret, getrennt von EDIT_TOKEN_SECRET, s. app/core/admin_auth.py).
 import csv
 import io
 import logging
-import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -41,6 +40,7 @@ from app.core.display import (
 from app.core.geocoding import GERMAN_STATES, candidate_summaries
 from app.core.spam import SPAM_REASON_LABELS
 from app.db import get_connection, insert_event
+from app.env import get_env
 from app.mail import send_confirmation_email
 from app.retry import retry_one_geocode, run_retry
 from app.submission import NewLeadData, row_to_new_lead_data
@@ -134,7 +134,7 @@ def _current_admin(request: Request) -> str | None:
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
-    secret = os.environ.get("SESSION_SECRET")
+    secret = get_env("SESSION_SECRET")
     if not secret:
         logger.warning("SESSION_SECRET nicht gesetzt - Admin-Session kann nicht geprüft werden")
         return None
@@ -150,9 +150,9 @@ def login_form(request: Request):
 
 @router.post("/login")
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
-    admin_user = os.environ.get("ADMIN_USER")
-    admin_password_hash = os.environ.get("ADMIN_PASSWORD_HASH")
-    session_secret = os.environ.get("SESSION_SECRET")
+    admin_user = get_env("ADMIN_USER")
+    admin_password_hash = get_env("ADMIN_PASSWORD_HASH")
+    session_secret = get_env("SESSION_SECRET")
 
     if not admin_user or not admin_password_hash or not session_secret:
         logger.warning("ADMIN_USER/ADMIN_PASSWORD_HASH/SESSION_SECRET nicht vollständig gesetzt")
@@ -1517,7 +1517,7 @@ def _authorized_for_retry(request: Request) -> bool:
     if _current_admin(request):
         return True
     return verify_retry_secret(
-        request.headers.get("X-Retry-Secret"), expected=os.environ.get("RETRY_SECRET")
+        request.headers.get("X-Retry-Secret"), expected=get_env("RETRY_SECRET")
     )
 
 

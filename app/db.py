@@ -1,7 +1,7 @@
-import os
-
 import psycopg
 from psycopg.types.json import Json
+
+from app.env import require_env
 
 
 def get_connection() -> psycopg.Connection:
@@ -11,9 +11,7 @@ def get_connection() -> psycopg.Connection:
     Vorwarnung beendet). prepare_threshold=None, weil der Supabase
     Transaction Pooler (Port 6543) keine Prepared Statements unterstützt.
     """
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL ist nicht gesetzt.")
+    dsn = require_env("DATABASE_URL")
     return psycopg.connect(dsn, prepare_threshold=None)
 
 

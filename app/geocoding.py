@@ -10,12 +10,12 @@ wirklich Nominatim auf, wenn es aufgerufen wird.
 """
 import dataclasses
 import logging
-import os
 import time
 
 import httpx
 
 from app.core.geocoding import GeocodeResult, parse_nominatim_results, parse_service_area_states
+from app.env import get_env
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ NOMINATIM_MIN_INTERVAL_SECONDS = 1.1
 # einer klaren Meldung abbrechen statt unbemerkt einen Filter zu bilden, der
 # nie zutrifft (Fund beim Live-Test, Marco 2026-08-17, s. docs/FUNDE.md).
 try:
-    SERVICE_AREA_STATES: set[str] = parse_service_area_states(os.environ.get("SERVICE_AREA_STATES", ""))
+    SERVICE_AREA_STATES: set[str] = parse_service_area_states(get_env("SERVICE_AREA_STATES", ""))
 except ValueError as exc:
     raise RuntimeError(f"SERVICE_AREA_STATES (Env-Variable) ist ungültig: {exc}") from exc
 
@@ -86,7 +86,7 @@ def geocode(*, street: str, postal_code: str | None, city: str) -> GeocodeResult
     weltweite Suche OHNE diese Prüfung hätte sonst genau den Fehlalarm
     reproduziert, den sie beheben soll (unscharf gefundener, falscher Ort
     mit erfundenem Bundesland statt eines ehrlichen "nicht gefunden")."""
-    user_agent = os.environ.get("NOMINATIM_USER_AGENT")
+    user_agent = get_env("NOMINATIM_USER_AGENT")
     if not user_agent:
         # Nominatims Nutzungsbedingungen verlangen einen identifizierenden
         # User-Agent - ohne den lieber gar nicht erst anfragen (Gefahr
