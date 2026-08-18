@@ -494,28 +494,35 @@ def test_ungueltiger_heard_about():
     resp = submit(data)
     lead = db_fetch_by_token(token)
     track(lead["id"] if lead else None)
+    events = db_events(lead["id"]) if lead else []
+    hat_unerwarteter_feldwert_event = any(
+        e["event_type"] == "unerwarteter_feldwert"
+        and e["payload"].get("feld") == "heard_about"
+        and e["payload"].get("wert") == "TikTok-Anzeige"
+        for e in events
+    )
 
     expected = (
-        "validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS "
-        "(anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird "
-        "mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() "
-        "kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist "
-        "eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz - Fund für Marco."
+        "normalize_heard_about() erkennt 'TikTok-Anzeige' nicht in HEARD_ABOUT_OPTIONS "
+        "-> HTTP 303, heard_about wird als None gespeichert (keine Angabe statt Ablehnung "
+        "oder stillem Rohwert), Rohwert bleibt im Event 'unerwarteter_feldwert' erhalten, "
+        "derive_channel() bekommt heard_about=None und fällt mangels utm/gclid/fbclid/referrer "
+        "auf channel='direkt' zurück."
     )
     actual = (
         f"HTTP {resp.status_code}; heard_about={lead['heard_about'] if lead else 'n/a'!r}, "
-        f"channel={lead['channel'] if lead else 'n/a'!r}, channel_source={lead['channel_source'] if lead else 'n/a'!r}"
+        f"channel={lead['channel'] if lead else 'n/a'!r}, channel_source={lead['channel_source'] if lead else 'n/a'!r}, "
+        f"unerwarteter_feldwert-Event vorhanden: {hat_unerwarteter_feldwert_event}"
     )
     match = (
         resp.status_code == 303
         and lead is not None
-        and lead["heard_about"] == "TikTok-Anzeige"
-        and lead["channel"] == "sonstiges"
+        and lead["heard_about"] is None
+        and lead["channel"] == "direkt"
+        and hat_unerwarteter_feldwert_event
     )
     record(
         "Auswahlfelder", "heard_about='TikTok-Anzeige' (nicht in Optionsliste)", expected, actual, match,
-        note="FUND: heard_about wird serverseitig gar nicht validiert (s. app/core/validation.py) - "
-             "im Gegensatz zu contact_time_preference. Nicht selbst repariert.",
     )
 
 

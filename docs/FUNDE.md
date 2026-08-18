@@ -413,3 +413,20 @@ Kandidaten exakt "Neustadt" heißt (sondern "Neustadt im Schwarzwald" usw.).
 Mit Marco abgestimmt: Verhalten ist so richtig, bewusst nicht auf
 Teilstring-Toleranz aufgeweicht - das wäre derselbe Fehlertyp wie der
 Bayern-Weiler-Fund, nur eine Stufe vorsichtiger versteckt.
+
+## Eine Testerwartung meldete einen bereits behobenen Fehler als offenen Fund (`scripts/testlauf.py`)
+
+`test_ungueltiger_heard_about()` prüfte noch gegen den Zustand von vor dem
+Fix aus „heard_about ohne Server-Validierung" oben (Rohwert gespeichert,
+`channel='sonstiges'`). Der Fix landete, die Testerwartung wurde dabei nicht
+nachgezogen - das tatsächliche, korrekte Verhalten (`heard_about=None`,
+`channel='direkt'`, Rohwert im Event `unerwarteter_feldwert` erhalten)
+erschien dadurch in `docs/TESTLAUF.md` als „Fund für Marco", obwohl es genau
+der gewünschte, bereits gebaute Zustand war. Aufgefallen beim Gegenlesen vor
+dem nächsten Testlauf, nicht durch eine Codeänderung. Derselbe Fehlertyp wie
+beim `geocode_status='simuliert'`-Fund oben, nur einen Schritt weiter hinten
+in der Kette: dort prüfte der Code gegen eine veraltete Handliste, hier
+prüfte der Test gegen eine veraltete Erwartung - eine Prüfung, die nicht am
+aktuellen Stand hängt, veraltet lautlos mit, unabhängig davon, ob sie im
+Anwendungscode oder im Testcode steht. Testerwartung korrigiert
+(`heard_about=None`, `channel='direkt'`, Event-Nachweis statt Rohwert-Nachweis).
