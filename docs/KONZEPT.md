@@ -519,7 +519,7 @@ geocodiert, erneut_angefragt, ersetzt`.
 
 - Kein LLM im Request-Pfad; kein Chart-Dashboard; keine users-Tabelle/Rollen;
   kein Double-Opt-In; keine Pagination (LIMIT 500); keine Kandidaten-Auswahl bei
-  ambiguous (nur Anzeige); keine E-Mail-Tippfehler-Erkennung.
+  ambiguous (nur Anzeige).
 - Kein Edit-Link (K4), keine Hotline (K5), keine Namens-Heuristik (K3).
 - Offline-Conversion-Upload zu Google/Meta: Daten liegen bereit (gclid/fbclid),
   Anbindung ist Livegang-Schritt.
