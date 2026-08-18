@@ -28,9 +28,24 @@ def test_ungueltige_email_syntax():
     assert "email" in errors
 
 
-def test_plz_muss_fuenfstellig_sein_wenn_gefuellt():
+def test_plz_zu_kurz_ist_ein_fehler():
     errors = validate_submission(**_valid_kwargs(postal_code="123"))
     assert "postal_code" in errors
+
+
+def test_plz_zu_lang_ist_ein_fehler():
+    errors = validate_submission(**_valid_kwargs(postal_code="12345678901"))
+    assert "postal_code" in errors
+
+
+def test_plz_vierstellig_oesterreichisch_ist_kein_fehler():
+    errors = validate_submission(**_valid_kwargs(postal_code="1010"))
+    assert "postal_code" not in errors
+
+
+def test_plz_alphanumerisch_ist_kein_fehler():
+    errors = validate_submission(**_valid_kwargs(postal_code="SW1A1AA"))
+    assert "postal_code" not in errors
 
 
 def test_plz_optional_leer_ist_kein_fehler():

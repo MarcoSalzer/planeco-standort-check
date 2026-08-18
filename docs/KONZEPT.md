@@ -224,7 +224,7 @@ Sales-Team kontaktiert"). Datenvollständigkeit ist deshalb ein Ziel für den Ze
 |---|---|---|---|
 | Straße + Hausnr. (Grundstück) | text | **ja** | street |
 | Ort (Grundstück) | text | **ja** | city |
-| PLZ (Grundstück) | text, 5-stellig wenn gefüllt | nein | postal_code |
+| PLZ (Grundstück) | text, 4-10 Zeichen (Ziffern/Buchstaben) wenn gefüllt [korrigiert, s. u.] | nein | postal_code |
 | E-Mail | email | **ja** | email |
 | Telefon | tel | nein | phone_raw |
 | Name | text | nein | name |
@@ -251,6 +251,15 @@ Sales-Team kontaktiert"). Datenvollständigkeit ist deshalb ein Ziel für den Ze
 
 Adressblock klar überschrieben ("Adresse des Grundstücks"), autocomplete-Attribute
 für Mobil, optionale Felder sichtbar als "(optional)" markiert.
+
+**PLZ-Format korrigiert [2026-08-18, mit Marco abgestimmt]:** Ursprünglich
+deutsches 5-stelliges Zahlenformat. Zum Zeitpunkt der Formularprüfung ist aber
+noch nicht bekannt, in welchem Land das Grundstück liegt — das klärt erst das
+Geocoding danach (§B). Eine 5-stellige Pflicht blockierte deshalb echte
+ausländische Postleitzahlen (z.B. Wien "1010", vierstellig) mit 422, obwohl
+PLZ optional ist. Jetzt nur grobe Plausibilität (4-10 Zeichen, Ziffern und
+Buchstaben, deckt auch alphanumerische Formate wie NL/GB ab); die inhaltliche
+Prüfung übernimmt ohnehin das Geocoding (`plz_abweichend`, Zeile 10).
 
 ### 3.2 Attribution: was automatisch kommt und was nicht [v3 korrigiert]
 

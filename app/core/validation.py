@@ -14,7 +14,12 @@ import re
 
 from email_validator import EmailNotValidError, validate_email
 
-_POSTAL_CODE_RE = re.compile(r"\d{5}")
+# Bewusst kein deutsches 5-stelliges Zahlenformat: zum Zeitpunkt der
+# Formularprüfung ist noch nicht bekannt, in welchem Land das Grundstück
+# liegt (das klärt erst das Geocoding danach). Nur grobe Plausibilität
+# (Länge, Ziffern/Buchstaben), die inhaltliche Prüfung übernimmt ohnehin
+# das Geocoding (Konzept §B Zeile 10, plz_abweichend).
+_POSTAL_CODE_RE = re.compile(r"[A-Za-z0-9]{4,10}")
 _CONTACT_TIME_PREFERENCES = {"vormittags", "nachmittags", "abends", "flexibel"}
 
 
@@ -43,7 +48,7 @@ def validate_submission(
             errors["email"] = "Bitte eine gültige E-Mail-Adresse angeben."
 
     if postal_code and postal_code.strip() and not _POSTAL_CODE_RE.fullmatch(postal_code.strip()):
-        errors["postal_code"] = "PLZ muss 5-stellig sein."
+        errors["postal_code"] = "PLZ muss 4 bis 10 Zeichen lang sein (Ziffern und Buchstaben)."
 
     if contact_time_preference and contact_time_preference not in _CONTACT_TIME_PREFERENCES:
         errors["contact_time_preference"] = "Ungültige Auswahl."
