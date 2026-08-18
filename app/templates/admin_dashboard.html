@@ -297,6 +297,29 @@
     .inline-hinweis.warnung { color: var(--dot-gelb); }
     .inline-hinweis.fehler { color: var(--dot-rot); }
 
+    .aktionen-zelle {
+      white-space: nowrap;
+    }
+    button.btn-mini {
+      font-size: 0.75rem;
+      font-family: inherit;
+      padding: 0.25rem 0.5rem;
+      margin: 0 0.3rem 0.3rem 0;
+      border: 1px solid var(--border);
+      border-radius: 0.3rem;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+    }
+    button.btn-mini:hover {
+      border-color: var(--focus);
+      color: var(--focus);
+    }
+    button.btn-mini:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
     .ampel-legende {
       font-size: 0.82rem;
       color: var(--muted);
@@ -453,8 +476,8 @@
     </div>
 
     <div class="export-row">
-      <button type="button" class="button-primary" id="globaler-retry-btn">Retry jetzt ausführen (Geocoding + Mail)</button>
-      <span class="hint" id="globaler-retry-status">Verarbeitet liegen gebliebenes Geocoding und fehlgeschlagene Mails (läuft sonst automatisch alle 15 Minuten).</span>
+      <button type="button" class="button-primary" id="globaler-retry-btn">Retry jetzt ausführen (außerhalb Korrekturfenster)</button>
+      <span class="hint" id="globaler-retry-status">Verarbeitet nur liegen gebliebenes Geocoding und fehlgeschlagene Mails AUSSERHALB des einstündigen Korrekturfensters (process_after, Konzept §G) — bei frischen Leads tut dieser Button deshalb nichts. Läuft sonst automatisch alle 15 Minuten. Für einen einzelnen frischen Lead die Buttons „Geocoding“/„Mail“ in dessen Zeile verwenden, die das Korrekturfenster bewusst übergehen.</span>
     </div>
 
     {% if leads %}
@@ -530,6 +553,7 @@
               </select>
             </th>
             <th>Hinweise</th>
+            <th>Aktionen</th>
           </tr>
         </thead>
         <tbody>
@@ -585,6 +609,15 @@
                 {% if badge.url %}<a class="badge" href="{{ badge.url }}">{{ badge.text }}</a>
                 {% else %}<span class="badge">{{ badge.text }}</span>{% endif %}
               {% endfor %}
+            </td>
+            <td class="aktionen-zelle">
+              {% if not lead.zeile_defekt %}
+              <button type="button" class="btn-mini btn-geocoding" data-lead-id="{{ lead.id }}" title="Geocoding für diesen Lead sofort wiederholen, übergeht das Korrekturfenster">Geocoding</button>
+              <button type="button" class="btn-mini btn-mail" data-lead-id="{{ lead.id }}" title="Bestätigungsmail für diesen Lead erneut senden">Mail</button>
+              <div class="inline-hinweis" hidden></div>
+              {% else %}
+              –
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -769,6 +802,108 @@
             ereignis.preventDefault();
             input.blur();
           }
+        });
+      });
+    })();
+
+    // Zeilen-Schnellaktionen "Geocoding"/"Mail" (Marco, 2026-08-19): der
+    // globale Retry-Button oben respektiert process_after und tut bei
+    // frischen Leads deshalb nichts - diese beiden Buttons stoßen Geocoding/
+    // Mailversand für GENAU EINEN Lead an, unter Umgehung des Korrektur-
+    // fensters (wie "Geocoding wiederholen" in der Detailansicht), ohne die
+    // Liste zu verlassen. Eigener Hinweis-Bereich in der Aktionen-Zelle
+    // (nicht der geteilte .inline-hinweis der Schnellbearbeitung oben -
+    // tr.querySelector() würde sonst immer den ERSTEN Treffer in der Zeile
+    // liefern, das wäre der Status-Zelle, nicht der Aktionen-Zelle).
+    (function () {
+      function zeigeAktionsHinweis(zelle, text, art) {
+        var hinweis = zelle.querySelector('.inline-hinweis');
+        if (!hinweis) { return; }
+        hinweis.textContent = text;
+        hinweis.hidden = !text;
+        hinweis.className = 'inline-hinweis' + (art ? ' ' + art : '');
+      }
+
+      function aktualisiereAmpelInZeile(tr, farbe, grund) {
+        var zellen = tr.querySelectorAll('.ampel-cell, .ampel-mobile');
+        zellen.forEach(function (zelle) {
+          var dot = zelle.querySelector('.dot');
+          var text = zelle.querySelector('.ampel-grund-text');
+          if (dot) { dot.className = 'dot ' + farbe; }
+          if (text) { text.textContent = grund; }
+        });
+      }
+
+      document.querySelectorAll('.btn-geocoding').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var zelle = btn.closest('.aktionen-zelle');
+          var tr = btn.closest('tr');
+          var leadId = btn.dataset.leadId;
+
+          var body = new URLSearchParams();
+          body.set('view', window.location.search.replace(/^\?/, ''));
+
+          btn.disabled = true;
+          zeigeAktionsHinweis(zelle, 'Läuft…', '');
+
+          fetch('/admin/leads/' + leadId + '/geocoding-wiederholen-schnell', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+          })
+            .then(function (antwort) {
+              if (!antwort.ok) { throw new Error('HTTP ' + antwort.status); }
+              return antwort.json();
+            })
+            .then(function (daten) {
+              aktualisiereAmpelInZeile(tr, daten.ampel_farbe, daten.ampel_grund);
+              if (!daten.passt_zum_filter) {
+                tr.classList.add('row-verlaesst-filter');
+                zeigeAktionsHinweis(
+                  zelle,
+                  'Ergebnis: ' + daten.ergebnis_label + ' – passt nicht mehr zum aktuellen Filter.',
+                  'warnung'
+                );
+              } else {
+                tr.classList.remove('row-verlaesst-filter');
+                zeigeAktionsHinweis(zelle, 'Ergebnis: ' + daten.ergebnis_label, '');
+              }
+            })
+            .catch(function (fehler) {
+              zeigeAktionsHinweis(zelle, 'Fehler: ' + fehler.message, 'fehler');
+            })
+            .finally(function () {
+              btn.disabled = false;
+            });
+        });
+      });
+
+      document.querySelectorAll('.btn-mail').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var zelle = btn.closest('.aktionen-zelle');
+          var leadId = btn.dataset.leadId;
+
+          btn.disabled = true;
+          zeigeAktionsHinweis(zelle, 'Läuft…', '');
+
+          fetch('/admin/leads/' + leadId + '/mail-erneut-senden-schnell', {
+            method: 'POST',
+            credentials: 'same-origin',
+          })
+            .then(function (antwort) {
+              if (!antwort.ok) { throw new Error('HTTP ' + antwort.status); }
+              return antwort.json();
+            })
+            .then(function (daten) {
+              zeigeAktionsHinweis(zelle, 'Ergebnis: ' + daten.ergebnis_label, '');
+            })
+            .catch(function (fehler) {
+              zeigeAktionsHinweis(zelle, 'Fehler: ' + fehler.message, 'fehler');
+            })
+            .finally(function () {
+              btn.disabled = false;
+            });
         });
       });
     })();

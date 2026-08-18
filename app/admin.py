@@ -1443,22 +1443,36 @@ def quick_update_lead(
     }
 
 
+def _versende_bestaetigungsmail(lead_id: str, base_url: str) -> str:
+    """Holt den Lead frisch aus der DB und sendet die Bestätigungsmail
+    erneut - gemeinsame Kernoperation für den redirect-basierten Button in
+    der Detailansicht (resend_lead_mail) UND die fetch-basierte
+    Zeilen-Schnellaktion in der Liste (quick_resend_mail). Nur Fehler-
+    reaktion und Antwortformat unterscheiden sich zwischen den beiden
+    Aufrufern (wie bei quick_update_lead vs. update_lead_bearbeitung),
+    deshalb bleibt das dort getrennt, die eigentliche Arbeit hier gebündelt.
+    Wirft ValueError, wenn der Lead nicht existiert."""
+    with get_connection() as conn:
+        row = _fetch_lead(conn, lead_id)
+        if row is None:
+            raise ValueError(f"Lead {lead_id} nicht gefunden.")
+        data = row_to_new_lead_data(row)
+
+    with get_connection() as conn:
+        return send_confirmation_email(conn, lead_id, data, base_url, DedupCase.NEU)
+
+
 @router.post("/leads/{lead_id}/mail-erneut-senden")
 def resend_lead_mail(request: Request, lead_id: str):
     admin_username = _current_admin(request)
     if not admin_username:
         return RedirectResponse(url="/admin/login", status_code=303)
 
-    with get_connection() as conn:
-        row = _fetch_lead(conn, lead_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
-        data = row_to_new_lead_data(row)
-
     aktion = "mail_gesendet"
     try:
-        with get_connection() as conn:
-            send_confirmation_email(conn, lead_id, data, str(request.base_url), DedupCase.NEU)
+        _versende_bestaetigungsmail(lead_id, str(request.base_url))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
     except Exception:
         # Admin-Aktion, kein Submit-Pfad - CLAUDE.md Regel 2 gilt hier nicht
         # wörtlich, aber ein rohes 500 für einen Klick auf "erneut senden"
@@ -1489,6 +1503,75 @@ def retry_lead_geocoding(request: Request, lead_id: str):
         ergebnis = "fehler"
 
     return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion=geocoding&ergebnis={ergebnis}", status_code=303)
+
+
+# --- Zeilen-Schnellaktionen in der Liste (Marco, 2026-08-19) ---------------
+# Der globale Retry-Button (weiter unten, /admin/retry) respektiert
+# process_after und tut bei frischen Leads deshalb bewusst nichts (Konzept
+# §G) - für den Einzelfall (z.B. eine Demo, bei der ein frischer Lead sofort
+# ein Ergebnis zeigen soll) braucht es einen Weg, der process_after bewusst
+# übergeht, ohne auf die Detailansicht wechseln zu müssen. retry_one_geocode()
+# tut das bereits (s. app/retry.py-Docstring); diese beiden Endpunkte sind
+# fetch-basierte Geschwister von retry_lead_geocoding/resend_lead_mail oben -
+# gleiche Kernoperation, JSON statt Redirect (wie schnellbearbeitung vs.
+# bearbeitung).
+
+
+@router.post("/leads/{lead_id}/geocoding-wiederholen-schnell")
+def quick_retry_geocoding(request: Request, lead_id: str, view: str = Form("")):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+
+    try:
+        ergebnis = retry_one_geocode(lead_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+    except Exception:
+        logger.exception("Geocoding-Schnellaktion fehlgeschlagen für Lead %s", lead_id)
+        ergebnis = "fehler"
+
+    with get_connection() as conn:
+        # Dieselbe _fetch_leads()/_decorate_row()-Pipeline wie die Liste
+        # selbst (s. quick_update_lead oben) statt der schlankeren
+        # _fetch_lead() - Geocoding kann geo_state/Ampel ändern, die beide
+        # auch Filterkriterien der Liste sind (Bundesland-/Ampel-Filter),
+        # nicht nur Anzeigewerte.
+        zeilen = _fetch_leads(conn, tab="alle", show_all=True, search=None, sort_mode="aeltest", only_id=lead_id)
+        if not zeilen:
+            raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+        raw = zeilen[0]
+        positions = _fetch_vorgang_positions(conn, [raw["lead_nummer"]] if raw["lead_nummer"] is not None else [])
+        dekoriert = _decorate_row_safe(raw, positions.get(str(raw["id"])))
+
+        filter_params = _resolve_dashboard_params(QueryParams(view))
+        filter_kwargs = {k: v for k, v in filter_params.items() if k not in ("sort_explicit", "show_all_explicit")}
+        passt_zum_filter = bool(_fetch_leads(conn, only_id=lead_id, **filter_kwargs))
+
+    return {
+        "ergebnis": ergebnis,
+        "ergebnis_label": status_label(ergebnis),
+        "ampel_farbe": dekoriert["ampel_farbe"],
+        "ampel_grund": dekoriert["ampel_grund"],
+        "passt_zum_filter": passt_zum_filter,
+    }
+
+
+@router.post("/leads/{lead_id}/mail-erneut-senden-schnell")
+def quick_resend_mail(request: Request, lead_id: str):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+
+    try:
+        email_status = _versende_bestaetigungsmail(lead_id, str(request.base_url))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+    except Exception:
+        logger.exception("Mail-Schnellaktion fehlgeschlagen für Lead %s", lead_id)
+        email_status = "fehlgeschlagen"
+
+    return {"ergebnis": email_status, "ergebnis_label": status_label(email_status)}
 
 
 def _update_lead(conn: psycopg.Connection, lead_id: str, updates: dict) -> None:
