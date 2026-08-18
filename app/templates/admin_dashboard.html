@@ -14,11 +14,11 @@
       --bg: #fafafa;
       --card: #ffffff;
       --badge-bg: #eef1f5;
-      --dot-gruen: #2e7d32;
-      --dot-gelb: #a66a00;
-      --dot-rot: #c62828;
-      --dot-grau: #8a8a8a;
-      --dot-schwarz: #212121;
+      --dot-gruen: #137a30;
+      --dot-gelb: #f2a900;
+      --dot-rot: #d93025;
+      --dot-grau: #6b7280;
+      --dot-schwarz: #1a1a1a;
     }
     * { box-sizing: border-box; }
     body {
@@ -356,30 +356,46 @@
       color: var(--text);
     }
 
+    /* Farbe ist hier NIE der einzige Träger der Information (Marco,
+       2026-08-19): jeder Zustand bekommt zusätzlich ein eigenes Symbol im
+       Kreis, damit Rotgrünblinde und schlechte Bildschirme nicht auf die
+       Farbunterscheidung allein angewiesen sind. Kräftigere, weiter
+       auseinanderliegende Farbtöne (vorher wirkten Gelb/Rot auf manchen
+       Bildschirmen fast gleich dunkel) sind die zweite, unterstützende
+       Maßnahme. */
     .dot {
-      display: inline-block;
-      width: 0.6rem;
-      height: 0.6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1rem;
+      height: 1rem;
       border-radius: 50%;
       margin-right: 0.4rem;
       flex: none;
+      font-size: 0.6rem;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
     }
     .dot.gruen { background: var(--dot-gruen); }
-    .dot.gelb { background: var(--dot-gelb); }
+    .dot.gelb { background: var(--dot-gelb); color: #3d2b00; }
     .dot.rot { background: var(--dot-rot); }
     .dot.grau { background: var(--dot-grau); }
     .dot.schwarz { background: var(--dot-schwarz); }
+    .dot.gruen::before { content: "✓"; }
+    .dot.gelb::before { content: "!"; }
+    .dot.rot::before { content: "✕"; }
+    .dot.grau::before { content: "…"; }
+    .dot.schwarz::before { content: "⊘"; }
     .dot.defekt {
       background-image: repeating-linear-gradient(45deg, #ad1457, #ad1457 2px, #fff 2px, #fff 4px);
       border: 1px solid #ad1457;
     }
+    .dot.defekt::before { content: "?"; color: #ad1457; }
 
     .ampel-cell, .ampel-mobile {
       display: flex;
-      align-items: flex-start;
-    }
-    .ampel-cell .dot, .ampel-mobile .dot {
-      margin-top: 0.3rem;
+      align-items: center;
     }
     .ampel-mobile {
       display: none;
@@ -476,8 +492,16 @@
     </div>
 
     <div class="export-row">
-      <button type="button" class="button-primary" id="globaler-retry-btn">Retry jetzt ausführen (außerhalb Korrekturfenster)</button>
-      <span class="hint" id="globaler-retry-status">Verarbeitet nur liegen gebliebenes Geocoding und fehlgeschlagene Mails AUSSERHALB des einstündigen Korrekturfensters (process_after, Konzept §G) — bei frischen Leads tut dieser Button deshalb nichts. Läuft sonst automatisch alle 15 Minuten. Für einen einzelnen frischen Lead die Buttons „Geocoding“/„Mail“ in dessen Zeile verwenden, die das Korrekturfenster bewusst übergehen.</span>
+      <button type="button" class="button-primary" id="globaler-retry-btn" data-wartend="{{ wartende_leads }}" {{ "disabled" if wartende_leads == 0 else "" }}>
+        {%- if wartende_leads == 0 -%}
+        Keine Leads warten
+        {%- elif wartende_leads == 1 -%}
+        1 Lead wartet – jetzt verarbeiten
+        {%- else -%}
+        {{ wartende_leads }} Leads warten – jetzt verarbeiten
+        {%- endif -%}
+      </button>
+      <span class="hint" id="globaler-retry-status">Für den Ausnahmefall: wenn ein Dienst (Nominatim/Brevo) zwischenzeitlich ausgefallen war und sich dadurch mehrere Leads angesammelt haben. Verarbeitet nur Leads außerhalb des einstündigen Korrekturfensters (process_after, Konzept §G) — läuft sonst automatisch alle 15 Minuten per Cron. Für einen einzelnen frischen Lead stattdessen die Buttons „Geocoding“/„Mail“ in dessen Zeile verwenden.</span>
     </div>
 
     {% if leads %}
@@ -652,7 +676,23 @@
       var btn = document.getElementById('globaler-retry-btn');
       var status = document.getElementById('globaler-retry-status');
       var defaultText = status.textContent;
-      var defaultLabel = btn.textContent;
+      // Wartend-Zahl clientseitig nachgeführt (Marco, 2026-08-19: "auf
+      // einen Blick klar, ob es etwas zu tun gibt") - nach jedem Lauf
+      // meldet /admin/retry die neue Zahl mit (run_retry() in
+      // app/retry.py), Button-Text und disabled-Zustand folgen ohne
+      // Seiten-Neuladen.
+      function aktualisiereButton(wartend) {
+        btn.dataset.wartend = wartend;
+        if (wartend === 0) {
+          btn.textContent = 'Keine Leads warten';
+        } else if (wartend === 1) {
+          btn.textContent = '1 Lead wartet – jetzt verarbeiten';
+        } else {
+          btn.textContent = wartend + ' Leads warten – jetzt verarbeiten';
+        }
+        btn.disabled = wartend === 0;
+      }
+
       btn.addEventListener('click', function () {
         btn.disabled = true;
         btn.textContent = 'Läuft…';
@@ -671,13 +711,11 @@
               'Mail: ' + daten.mail.verarbeitet + ' verarbeitet, ' + daten.mail.verbleibend + ' verbleibend. ' +
               'Auslandshinweis: ' + daten.auslandshinweis.verarbeitet + ' verarbeitet, ' + daten.auslandshinweis.verbleibend + ' verbleibend. ' +
               '(Seite neu laden, um aktualisierte Ampeln zu sehen.)';
+            aktualisiereButton(daten.wartend);
           })
           .catch(function (fehler) {
             status.textContent = 'Fehler beim Retry-Aufruf: ' + fehler.message;
-          })
-          .finally(function () {
-            btn.disabled = false;
-            btn.textContent = defaultLabel;
+            aktualisiereButton(parseInt(btn.dataset.wartend, 10) || 0);
           });
       });
     })();

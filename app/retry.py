@@ -53,11 +53,41 @@ _MAIL_RETRY_BATCH_SIZE = 10
 
 
 def run_retry(*, base_url: str) -> dict:
-    return {
+    ergebnis = {
         "geocoding": _retry_geocoding(),
         "mail": _retry_mail(base_url=base_url),
         "auslandshinweis": _retry_auslandshinweis(),
     }
+    with get_connection() as conn:
+        ergebnis["wartend"] = count_wartende_leads(conn)
+    return ergebnis
+
+
+def count_wartende_leads(conn: psycopg.Connection) -> int:
+    """Anzahl Leads, für die IRGENDEINER der drei Retry-Zweige (Geocoding,
+    Mail, Auslandshinweis) bereit ist (process_after verstrichen) - für die
+    Anzeige am globalen Retry-Button (Marco, 2026-08-19: "3 Leads warten"),
+    damit auf einen Blick klar ist, ob der Ausnahmefall (liegen gebliebene
+    Leads nach einem Dienstausfall) überhaupt vorliegt. Zählt LEADS, nicht
+    Aktionen - ein Lead, der sowohl Geocoding- als auch Mail-Retry braucht,
+    zählt einmal, nicht doppelt."""
+    row = conn.execute(
+        """
+        SELECT count(*) FROM leads
+        WHERE process_after <= now()
+        AND (
+            geocode_status = ANY(%(geocode_statuses)s)
+            OR email_status = ANY(%(email_statuses)s)
+            OR ausland_hinweis_status = ANY(%(auslandshinweis_statuses)s)
+        )
+        """,
+        {
+            "geocode_statuses": _GEOCODE_RETRY_STATUSES,
+            "email_statuses": _EMAIL_RETRY_STATUSES,
+            "auslandshinweis_statuses": _AUSLANDSHINWEIS_RETRY_STATUSES,
+        },
+    ).fetchone()
+    return row[0]
 
 
 def retry_one_geocode(lead_id: str) -> str:

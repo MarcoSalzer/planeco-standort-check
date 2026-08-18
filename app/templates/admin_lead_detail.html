@@ -16,11 +16,11 @@
       --highlight-bg: #fff8e1;
       --highlight-border: #e8c34a;
       --banner-bg: #eef1f5;
-      --dot-gruen: #2e7d32;
-      --dot-gelb: #a66a00;
-      --dot-rot: #c62828;
-      --dot-grau: #8a8a8a;
-      --dot-schwarz: #212121;
+      --dot-gruen: #137a30;
+      --dot-gelb: #f2a900;
+      --dot-rot: #d93025;
+      --dot-grau: #6b7280;
+      --dot-schwarz: #1a1a1a;
     }
     * { box-sizing: border-box; }
     body {
@@ -93,19 +93,34 @@
       background: var(--bg);
       border-radius: 0.4rem;
     }
+    /* Symbol je Zustand zusätzlich zur Farbe (Marco, 2026-08-19) - Farbe
+       allein ist nie der einzige Träger der Information, s. auch
+       admin_dashboard.html (identische Regeln, hier dupliziert wie der
+       Rest der Ampel-CSS). */
     .dot {
-      display: inline-block;
-      width: 0.65rem;
-      height: 0.65rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.05rem;
+      height: 1.05rem;
       border-radius: 50%;
       margin-right: 0.5rem;
       flex: none;
+      font-size: 0.62rem;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
     }
     .dot.gruen { background: var(--dot-gruen); }
-    .dot.gelb { background: var(--dot-gelb); }
+    .dot.gelb { background: var(--dot-gelb); color: #3d2b00; }
     .dot.rot { background: var(--dot-rot); }
     .dot.grau { background: var(--dot-grau); }
     .dot.schwarz { background: var(--dot-schwarz); }
+    .dot.gruen::before { content: "✓"; }
+    .dot.gelb::before { content: "!"; }
+    .dot.rot::before { content: "✕"; }
+    .dot.grau::before { content: "…"; }
+    .dot.schwarz::before { content: "⊘"; }
 
     .message-card {
       background: var(--highlight-bg);
