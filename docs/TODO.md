@@ -196,12 +196,13 @@ laufen zu lassen - der automatisierte Testlauf blieb dadurch bewusst aus
 "Sonstiges, noch offen" unten), die fünf Punkte aus der anschließenden
 Abnahme sind bearbeitet (s. "Abnahme-Rückmeldung 19.08." unten).
 
-**Aktueller Stand:** Bau laut Marco abgeschlossen. Übrig: Phase 5
-(verbleibende manuelle Prüfpunkte durchgehen, s. Checkliste unten - viele
-Punkte sind mit den fünf Beispielanfragen bereits mitgeprüft) und Phase 6
-(NOTES.md, README, Repo-Hygiene, Abgabe).
+**Aktueller Stand:** Bau laut Marco abgeschlossen (bestätigt nach einer
+zweiten Abnahme-Rückmeldungsrunde, s. unten - nicht schon nach der
+ersten). Übrig: Phase 5 (verbleibende manuelle Prüfpunkte durchgehen, s.
+Checkliste unten - viele Punkte sind mit den fünf Beispielanfragen bereits
+mitgeprüft) und Phase 6 (NOTES.md, README, Repo-Hygiene, Abgabe).
 
-### Abnahme-Rückmeldung 19.08. (fünf Punkte) — danach Bau abgeschlossen
+### Abnahme-Rückmeldung 19.08., Runde 1 (fünf Punkte)
 
 Marco hat die fünf Beispielanfragen live eingetippt (Vercel) und fünf
 Punkte zurückgemeldet, alle bearbeitet:
@@ -250,6 +251,28 @@ Punkte zurückgemeldet, alle bearbeitet:
    nein") plus ein eigenes Feld für die bestätigte Adresse wären der
    nächste Schritt - bewusst nicht gebaut (Zeitrahmen des Case), aber ein
    echter, im Live-Betrieb sofort spürbarer nächster Ausbauschritt.
+
+### Abnahme-Rückmeldung 19.08., Runde 2 (drei Punkte) — danach Bau abgeschlossen ✅
+
+1. **Interne Entwicklungsstand-Hinweise aus der Oberfläche entfernt.** Die
+   Auswertungsseite zeigte mehrere Absätze Erklärung, darunter "Bundesland
+   kommt aus dem Geocoding (Phase 4, noch nicht gebaut)" - interne
+   Projektplanung im Produkt, die nicht mal mehr stimmte. Honesty-Hint auf
+   eine Zeile gekürzt, die restliche Erklärung als Tooltip an den
+   betreffenden Spaltenüberschriften. Ganze Anwendung auf weitere Stellen
+   geprüft (Templates + Python-Strings, die gerendert werden) - keine
+   weiteren gefunden. Bleibt bewusst unangetastet: Code-Kommentare
+   (CSS/JS/Python) mit "Marco"/Datum/Konzept-Bezug - die sind nie im
+   sichtbaren UI-Text, dasselbe Prinzip wie Docstrings.
+2. **Retry-Button-Widerspruch behoben.** "0 wartend" + deaktiviert sah aus
+   wie "nichts zu tun", obwohl Leads im Korrekturfenster lagen (live
+   bestätigt: 0 wartend, 2 im Korrekturfenster). Hinweistext zeigt jetzt
+   immer beide Zahlen, mit Zusatzsatz, wenn ausschließlich Leads im
+   Fenster liegen. Button bleibt wie besprochen nur für Leads außerhalb
+   des Fensters zuständig.
+3. **Bau laut Marco abgeschlossen.** Nächster Schritt: NOTES.md (Phase 6) -
+   kein weiterer Bauauftrag erwartet, nur noch Abnahme-Reste (Checkliste
+   unten) und Notizen/Abgabe.
 
 ### Sonstiges, noch offen (kein Bauauftrag, nur Diese-Woche-Erinnerung)
 
