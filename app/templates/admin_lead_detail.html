@@ -16,10 +16,10 @@
       --highlight-bg: #fff8e1;
       --highlight-border: #e8c34a;
       --banner-bg: #eef1f5;
-      --dot-gruen: #137a30;
-      --dot-gelb: #f2a900;
+      --dot-gruen: #0e7a3a;
+      --dot-gelb: #ffc107;
       --dot-rot: #d93025;
-      --dot-grau: #6b7280;
+      --dot-grau: #5b6472;
       --dot-schwarz: #1a1a1a;
     }
     * { box-sizing: border-box; }
@@ -93,34 +93,31 @@
       background: var(--bg);
       border-radius: 0.4rem;
     }
-    /* Symbol je Zustand zusätzlich zur Farbe (Marco, 2026-08-19) - Farbe
-       allein ist nie der einzige Träger der Information, s. auch
-       admin_dashboard.html (identische Regeln, hier dupliziert wie der
-       Rest der Ampel-CSS). */
-    .dot {
+    /* Kräftige farbige Fläche statt kleinem Punkt (Marco, 2026-08-19: "auf
+       einen Blick von der anderen Seite des Schreibtischs erkennbar"), s.
+       admin_dashboard.html für die ausführliche Begründung (identische
+       Regeln, hier dupliziert wie der Rest der Ampel-CSS). Symbol je
+       Zustand zusätzlich zur Farbe - Farbe allein ist nie der einzige
+       Träger der Information. */
+    .ampel-chip {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      width: 1.05rem;
-      height: 1.05rem;
-      border-radius: 50%;
-      margin-right: 0.5rem;
-      flex: none;
-      font-size: 0.62rem;
+      gap: 0.4rem;
+      padding: 0.3rem 0.7rem;
+      border-radius: 0.4rem;
       font-weight: 700;
-      line-height: 1;
       color: #fff;
     }
-    .dot.gruen { background: var(--dot-gruen); }
-    .dot.gelb { background: var(--dot-gelb); color: #3d2b00; }
-    .dot.rot { background: var(--dot-rot); }
-    .dot.grau { background: var(--dot-grau); }
-    .dot.schwarz { background: var(--dot-schwarz); }
-    .dot.gruen::before { content: "✓"; }
-    .dot.gelb::before { content: "!"; }
-    .dot.rot::before { content: "✕"; }
-    .dot.grau::before { content: "…"; }
-    .dot.schwarz::before { content: "⊘"; }
+    .ampel-chip.gruen { background: var(--dot-gruen); }
+    .ampel-chip.gelb { background: var(--dot-gelb); color: #3d2b00; }
+    .ampel-chip.rot { background: var(--dot-rot); }
+    .ampel-chip.grau { background: var(--dot-grau); }
+    .ampel-chip.schwarz { background: var(--dot-schwarz); }
+    .ampel-chip.gruen::before { content: "✓"; }
+    .ampel-chip.gelb::before { content: "!"; }
+    .ampel-chip.rot::before { content: "✕"; }
+    .ampel-chip.grau::before { content: "…"; }
+    .ampel-chip.schwarz::before { content: "⊘"; }
 
     .message-card {
       background: var(--highlight-bg);
@@ -259,7 +256,7 @@
         <h2>{{ lead.name or "(ohne Namen)" }}</h2>
         <p class="status-line">Status: {{ status_display }} · Erstellt am {{ created_at_display }}</p>
         <div class="ampel-line">
-          <span class="dot {{ ampel_farbe }}" aria-hidden="true"></span>{{ ampel_grund }}
+          <span class="ampel-chip {{ ampel_farbe }}">{{ ampel_grund }}</span>
         </div>
       </div>
     </div>
@@ -318,9 +315,10 @@
       </form>
       <form method="post" action="/admin/leads/{{ lead_id }}/mail-erneut-senden" class="resend-form">
         <p class="mail-status-line">
-          <span class="dot {{ mail_status_hinweis.farbe }}" aria-hidden="true"></span>
-          <strong>Bestätigungsmail:</strong> {{ mail_status_hinweis.text }}
-          {%- if mail_status_hinweis.versuche and mail_status_hinweis.versuche > 1 %} ({{ mail_status_hinweis.versuche }} Versuche){% endif %}
+          <span class="ampel-chip {{ mail_status_hinweis.farbe }}">
+            <strong>Bestätigungsmail:</strong> {{ mail_status_hinweis.text }}
+            {%- if mail_status_hinweis.versuche and mail_status_hinweis.versuche > 1 %} ({{ mail_status_hinweis.versuche }} Versuche){% endif %}
+          </span>
         </p>
         <button type="submit">Bestätigungsmail erneut senden</button>
         <p class="hint">Bei Spam-Verdacht wird nie gesendet.</p>
