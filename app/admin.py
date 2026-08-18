@@ -996,6 +996,12 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
     if row["email_normalized"] and row["email_normalized"] != row["email"]:
         email_value += f" (normalisiert: {row['email_normalized']})"
 
+    email_mx_value = (
+        "MX-Eintrag bestätigt (Domain nimmt Mail an)"
+        if row["email_mx_status"] == "geprueft"
+        else "Nicht prüfbar (DNS-Dienst war nicht erreichbar/Timeout - Adresse trotzdem angenommen)"
+    )
+
     if row["phone_raw"]:
         if row["phone_valid"] and row["phone_e164"]:
             phone_value = f"{row['phone_raw']} (gültig, E.164: {row['phone_e164']})"
@@ -1012,6 +1018,7 @@ def _field_groups(row: dict) -> list[tuple[str, list[tuple[str, str]]]]:
         ("Kontakt", [
             ("Name", name_value),
             ("E-Mail", email_value),
+            ("E-Mail-Zustellbarkeit", email_mx_value),
             ("Telefon", phone_value),
         ]),
         ("Adresse (Grundstück)", [

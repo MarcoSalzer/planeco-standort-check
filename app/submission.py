@@ -31,6 +31,7 @@ class NewLeadData:
     name_normalized: bool
     email: str
     email_normalized: str
+    email_mx_status: str
     phone_raw: str | None
     phone_e164: str | None
     phone_valid: bool
@@ -349,7 +350,7 @@ def _insert_lead(
         """
         INSERT INTO leads (
             submission_token, name, name_raw, name_normalized,
-            email, email_normalized, phone_raw, phone_e164, phone_valid,
+            email, email_normalized, email_mx_status, phone_raw, phone_e164, phone_valid,
             street, postal_code, city,
             is_owner, contact_time_preference, message, heard_about,
             utm_source, utm_medium, utm_campaign, utm_term, utm_content,
@@ -359,7 +360,7 @@ def _insert_lead(
             is_spam, spam_reason, privacy_accepted_at, process_after, expansion_opt_in
         ) VALUES (
             %(submission_token)s, %(name)s, %(name_raw)s, %(name_normalized)s,
-            %(email)s, %(email_normalized)s, %(phone_raw)s, %(phone_e164)s, %(phone_valid)s,
+            %(email)s, %(email_normalized)s, %(email_mx_status)s, %(phone_raw)s, %(phone_e164)s, %(phone_valid)s,
             %(street)s, %(postal_code)s, %(city)s,
             %(is_owner)s, %(contact_time_preference)s, %(message)s, %(heard_about)s,
             %(utm_source)s, %(utm_medium)s, %(utm_campaign)s, %(utm_term)s, %(utm_content)s,

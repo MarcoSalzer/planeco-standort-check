@@ -151,6 +151,20 @@
       font-size: 0.85rem;
       margin: 0.35rem 0 0;
     }
+    .field-suggestion {
+      margin: 0.35rem 0 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .field-suggestion button {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: var(--focus);
+      text-decoration: underline;
+      cursor: pointer;
+    }
     .field input[aria-invalid="true"],
     .field select[aria-invalid="true"] {
       border-color: var(--error);
@@ -214,6 +228,7 @@
           value="{{ values.email }}" {% if errors.email %}aria-invalid="true" aria-describedby="email-error"{% endif %}
           autocomplete="email" inputmode="email">
         {% if errors.email %}<p class="field-error" id="email-error">{{ errors.email }}</p>{% endif %}
+        <p class="field-suggestion" id="email-suggestion" hidden></p>
       </div>
 
       <div class="field">
@@ -341,5 +356,92 @@
     {%- if kontakt_telefon %}<a href="tel:{{ kontakt_telefon }}">{{ kontakt_telefon }}</a>{% endif %}.
   </footer>
   {% endif %}
+
+  <script>
+    // Tippfehler-Vorschlag bei der E-Mail-Domain (Konzept §D/§K): reine
+    // Komfortfunktion, kein Blocker (CLAUDE.md Regel 11 - clientseitig ist
+    // nie Sicherheit, die verbindliche Prüfung läuft serverseitig über
+    // app/email_check.py mit echter DNS-Abfrage). Levenshtein-Distanz gegen
+    // die 20 häufigsten E-Mail-Domains in Deutschland (Konzept §D).
+    (function () {
+      var HAEUFIGE_DOMAINS = [
+        'gmail.com', 'googlemail.com', 'gmx.de', 'gmx.net', 'web.de',
+        't-online.de', 'yahoo.de', 'yahoo.com', 'outlook.de', 'outlook.com',
+        'hotmail.de', 'hotmail.com', 'icloud.com', 'freenet.de', 'arcor.de',
+        'aol.com', 'live.de', 'mail.de', 'posteo.de', '1und1.de',
+      ];
+
+      function levenshtein(a, b) {
+        var zeilen = [];
+        for (var i = 0; i <= a.length; i++) { zeilen.push([i]); }
+        for (var j = 0; j <= b.length; j++) { zeilen[0][j] = j; }
+        for (i = 1; i <= a.length; i++) {
+          for (j = 1; j <= b.length; j++) {
+            if (a[i - 1] === b[j - 1]) {
+              zeilen[i][j] = zeilen[i - 1][j - 1];
+            } else {
+              zeilen[i][j] = 1 + Math.min(zeilen[i - 1][j - 1], zeilen[i][j - 1], zeilen[i - 1][j]);
+            }
+          }
+        }
+        return zeilen[a.length][b.length];
+      }
+
+      var input = document.getElementById('email');
+      var hinweis = document.getElementById('email-suggestion');
+      if (!input || !hinweis) { return; }
+
+      var uebernommenerVorschlag = null;
+
+      function verstecken() {
+        hinweis.hidden = true;
+        hinweis.textContent = '';
+        hinweis.innerHTML = '';
+      }
+
+      input.addEventListener('blur', function () {
+        var wert = input.value.trim();
+        var at = wert.lastIndexOf('@');
+        if (at === -1 || at === wert.length - 1) { verstecken(); return; }
+
+        var domain = wert.slice(at + 1).toLowerCase();
+        // Kein erneuter Vorschlag, wenn der Nutzer genau diesen Vorschlag
+        // gerade selbst übernommen hat.
+        if (domain === uebernommenerVorschlag) { verstecken(); return; }
+        if (HAEUFIGE_DOMAINS.indexOf(domain) !== -1) { verstecken(); return; }
+
+        var beste = null;
+        var besteDistanz = Infinity;
+        HAEUFIGE_DOMAINS.forEach(function (kandidat) {
+          var distanz = levenshtein(domain, kandidat);
+          if (distanz < besteDistanz) {
+            besteDistanz = distanz;
+            beste = kandidat;
+          }
+        });
+
+        // Nur bei einem knappen Tippfehler vorschlagen (1-2 Zeichen
+        // Abstand), nicht bei einer grundsätzlich anderen Domain - sonst
+        // wäre der Vorschlag mehr Rätselraten als Hilfe.
+        if (beste === null || besteDistanz === 0 || besteDistanz > 2) { verstecken(); return; }
+
+        var lokalTeil = wert.slice(0, at + 1);
+        hinweis.textContent = 'Meinten Sie ' + beste + '? ';
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Übernehmen';
+        button.addEventListener('click', function () {
+          uebernommenerVorschlag = beste;
+          input.value = lokalTeil + beste;
+          verstecken();
+          input.focus();
+        });
+        hinweis.appendChild(button);
+        hinweis.hidden = false;
+      });
+
+      input.addEventListener('input', verstecken);
+    })();
+  </script>
 </body>
 </html>

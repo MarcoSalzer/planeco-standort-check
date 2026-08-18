@@ -27,6 +27,7 @@ from app.core.normalize import (  # noqa: E402
 from app.core.spam import detect_spam  # noqa: E402
 from app.core.validation import validate_submission  # noqa: E402
 from app.db import get_connection  # noqa: E402
+from app.email_check import EmailUndeliverable, check_email_mx  # noqa: E402
 from app.env import get_env  # noqa: E402
 from app.mail import send_confirmation_email  # noqa: E402
 from app.submission import NewLeadData, persist_submission, resolve_current_lead  # noqa: E402
@@ -223,6 +224,28 @@ async def submit(request: Request):
         contact_time_preference=contact_time_preference,
         privacy_accepted=privacy_accepted,
     )
+
+    # MX-Prüfung (Konzept §D/§K): eigener Schritt NACH der reinen
+    # Syntaxprüfung, weil er echten DNS-Zugriff braucht - validate_submission()
+    # bleibt bewusst netzwerkfrei (s. deren Docstring), damit sie ohne DNS
+    # testbar bleibt. Läuft nur, wenn die E-Mail schon syntaktisch gültig ist -
+    # sonst würde eine offensichtlich kaputte Adresse zusätzlich noch eine
+    # DNS-Anfrage auslösen, ohne neuen Erkenntnisgewinn.
+    email_mx_status = "nicht_pruefbar"
+    if "email" not in errors:
+        try:
+            email_mx_status = check_email_mx(email)
+        except EmailUndeliverable:
+            # Bestätigt keine Mail annehmbar (NXDOMAIN, kein MX/A/AAAA) -
+            # wie ein Syntaxfehler behandelt, derselbe 422-Pfad unten. Ein
+            # ausgefallener DNS-Dienst landet NICHT hier (s. app/email_check.py,
+            # dort wird daraus 'nicht_pruefbar' statt einer Exception) - ein
+            # ausgefallener DNS-Dienst darf keinen Lead kosten (Marco, 2026-08-19).
+            errors["email"] = (
+                "Diese E-Mail-Domain kann offenbar keine E-Mails empfangen "
+                "(kein Mailserver gefunden). Bitte Schreibweise prüfen."
+            )
+
     if errors:
         context = {
             "values": values,
@@ -301,6 +324,7 @@ async def submit(request: Request):
         name_normalized=name_normalized,
         email=email,
         email_normalized=email_normalized,
+        email_mx_status=email_mx_status,
         phone_raw=phone_raw,
         phone_e164=phone_e164,
         phone_valid=phone_valid,

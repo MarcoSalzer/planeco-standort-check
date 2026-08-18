@@ -666,6 +666,17 @@ Der einzige echte Beweis ist die Zustellung selbst: `email_status='gesendet'` he
 angenommen, `fehlgeschlagen` heißt Problem. Bounces würde Brevo per Webhook melden —
 nicht gebaut, Notizen-Punkt.
 
+**Umgesetzt [2026-08-19]:** `app/email_check.py::check_email_mx()`, Timeout 2s
+statt der optimistischen ~100ms oben (real gemessen: 30-900ms je nach Domain).
+Bestätigt nicht zustellbare Domains (NXDOMAIN, kein MX/A/AAAA) lehnen den
+Submit mit 422 ab; ist der DNS-Dienst selbst nicht erreichbar (Timeout, kein
+Nameserver), wird die Adresse angenommen und `email_mx_status='nicht_pruefbar'`
+gesetzt (Migration 0013) — ein ausgefallener DNS-Dienst darf keinen Lead
+kosten. Live-Test bestätigt die Notwendigkeit der Levenshtein-Zeile darüber:
+`gmial.com` existiert tatsächlich als registrierte Domain mit eigenem
+Mailserver und besteht die MX-Prüfung — nur der Tippfehler-Vorschlag fängt
+diesen Fall ab, die beiden Prüfungen ergänzen sich, keine ersetzt die andere.
+
 ## E. Wann KEINE Bestätigungsmail rausgeht [vollständige Liste]
 
 Nur zwei Fälle:

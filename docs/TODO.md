@@ -221,9 +221,19 @@ Konzept §3.1 nachgezogen, drei neue Tests in `tests/core/test_validation.py`.
   die beanstandete Zeile "wird von nichts importiert" existiert im aktuellen
   Docstring nicht mehr, laut `git log` schon im zweiten Commit des Moduls
   ersetzt - dieser TODO-Punkt war selbst veraltet).
-- **MX-Prüfung/Tippfehler-Vorschlag bei E-Mail** (Konzept §D) - Scope-Cut,
-  mit Marco entschieden (2026-08-18): nicht bauen, Begründung in NOTES.md
-  (Phase 6) dokumentieren.
+- **✅ MX-Prüfung/Tippfehler-Vorschlag bei E-Mail** (Konzept §D) - ursprünglich
+  als Scope-Cut entschieden (2026-08-18), am 2026-08-19 doch noch gebaut
+  (Zeit gewonnen). Serverseitig: `app/email_check.py::check_email_mx()`
+  (email-validator, `check_deliverability=True`, Timeout 2s), lehnt bei
+  bestätigt nicht zustellbarer Domain (NXDOMAIN, kein MX/A/AAAA) mit 422 ab;
+  bei ausgefallenem DNS-Dienst/Timeout wird die Adresse angenommen und
+  `email_mx_status='nicht_pruefbar'` gesetzt (Migration 0013) - kostet nie
+  einen Lead. Clientseitig: Levenshtein-Vorschlag gegen 20 häufige Domains
+  in `form.html` ("Meinten Sie gmail.com?"), kein Blocker. Live gegen echte
+  Domains verifiziert, inkl. eines Grenzfalls: `gmial.com` existiert
+  tatsächlich mit eigenem Mailserver, die MX-Prüfung lässt sie also
+  passieren - genau dafür ergänzt der Tippfehler-Vorschlag die MX-Prüfung,
+  statt sie zu duplizieren.
 
 ## Phase 0 — Konzept fixieren (Chat) ✅ weitgehend
 - [x] Datenmodell + Pipeline + Risiken (KONZEPT v2)
@@ -247,7 +257,7 @@ Konzept §3.1 nachgezogen, drei neue Tests in `tests/core/test_validation.py`.
 - [x] Hidden Fields: utm_*, gclid, fbclid, referrer, landing_page, token, rendered_at, Honeypot
 - [x] POST /submit: Server-Validierung (422 re-rendert MIT Eingaben), Normalisierung, content_hash, Dedup-Entscheidung F1-F4, INSERT, PRG
 - [x] F3 Feld-Merge (neu gewinnt bei Konflikt, alt füllt Lücken) + superseded-Kette + Events mit changed_fields/merged_fields
-- [x] E-Mail-Validierung: Client type=email + JS-Tippfehlervorschlag; Server Syntax (email-validator) — **MX-Prüfung bewusst ausgelassen, s. "Sonstiges, noch offen" oben**
+- [x] E-Mail-Validierung: Client type=email + JS-Tippfehlervorschlag; Server Syntax (email-validator) — **MX-Prüfung seit 2026-08-19 ergänzt, s. "Sonstiges, noch offen" oben**
 - [x] Namens-Normalisierung (nur bei durchgaengig GROSS/klein), name_raw erhalten, Tabellentest inkl. McDonald/van der Berg/Mueller-Luedenscheidt
 - [x] Kanal-Ableitung beim INSERT: channel + channel_source nach Prioritaetsliste, Tabellentest
 - [x] process_after setzen (Env PROCESS_DELAY_MINUTES) — mit Phase 4 Block (c) verdrahtet, s. docs/FUNDE.md
