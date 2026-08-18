@@ -60,21 +60,19 @@ def run_retry(*, base_url: str) -> dict:
     }
     with get_connection() as conn:
         ergebnis["wartend"] = count_wartende_leads(conn)
+        ergebnis["im_korrekturfenster"] = count_leads_im_korrekturfenster(conn)
     return ergebnis
 
 
-def count_wartende_leads(conn: psycopg.Connection) -> int:
-    """Anzahl Leads, für die IRGENDEINER der drei Retry-Zweige (Geocoding,
-    Mail, Auslandshinweis) bereit ist (process_after verstrichen) - für die
-    Anzeige am globalen Retry-Button (Marco, 2026-08-19: "3 Leads warten"),
-    damit auf einen Blick klar ist, ob der Ausnahmefall (liegen gebliebene
-    Leads nach einem Dienstausfall) überhaupt vorliegt. Zählt LEADS, nicht
-    Aktionen - ein Lead, der sowohl Geocoding- als auch Mail-Retry braucht,
-    zählt einmal, nicht doppelt."""
+def _count_leads_mit_offenen_retries(conn: psycopg.Connection, *, im_fenster: bool) -> int:
+    # im_fenster kommt nie aus einer Anfrage, nur aus den beiden Aufrufern
+    # unten mit fest im Code stehendem True/False - sicher trotz
+    # f-String-Interpolation (dasselbe Muster wie app/admin.py::_update_lead).
+    vergleich = "process_after > now()" if im_fenster else "process_after <= now()"
     row = conn.execute(
-        """
+        f"""
         SELECT count(*) FROM leads
-        WHERE process_after <= now()
+        WHERE {vergleich}
         AND (
             geocode_status = ANY(%(geocode_statuses)s)
             OR email_status = ANY(%(email_statuses)s)
@@ -88,6 +86,26 @@ def count_wartende_leads(conn: psycopg.Connection) -> int:
         },
     ).fetchone()
     return row[0]
+
+
+def count_wartende_leads(conn: psycopg.Connection) -> int:
+    """Anzahl Leads, für die IRGENDEINER der drei Retry-Zweige (Geocoding,
+    Mail, Auslandshinweis) bereit ist (process_after verstrichen) - für die
+    Anzeige am globalen Retry-Button (Marco, 2026-08-19: "3 Leads warten"),
+    damit auf einen Blick klar ist, ob der Ausnahmefall (liegen gebliebene
+    Leads nach einem Dienstausfall) überhaupt vorliegt. Zählt LEADS, nicht
+    Aktionen - ein Lead, der sowohl Geocoding- als auch Mail-Retry braucht,
+    zählt einmal, nicht doppelt."""
+    return _count_leads_mit_offenen_retries(conn, im_fenster=False)
+
+
+def count_leads_im_korrekturfenster(conn: psycopg.Connection) -> int:
+    """Wie count_wartende_leads(), aber process_after liegt noch in der
+    Zukunft (Korrekturfenster läuft noch). Ohne diese Zahl wirkt ein
+    deaktivierter Retry-Button mit "0 wartend" wie "nichts zu tun", obwohl
+    frische Leads nur noch nicht dran sind (Marco, 2026-08-19: "sieht aus,
+    als sei nichts zu tun, obwohl offene Vorgänge existieren")."""
+    return _count_leads_mit_offenen_retries(conn, im_fenster=True)
 
 
 def retry_one_geocode(lead_id: str) -> str:

@@ -374,10 +374,17 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
   bei einem frisch eingegangenen Lead tut er bewusst nichts. Für den
   Einzelfall (z.B. eine Demo, bei der ein frischer Lead sofort ein Ergebnis
   zeigen soll) gibt es stattdessen die Buttons "Geocoding"/"Mail" in der
-  jeweiligen Zeile, die process_after bewusst übergehen. Die Oberfläche
-  zeigt dazu nur einen kurzen Hinweissatz plus die Zahl wartender Leads
-  am Button selbst ("3 Leads warten") — dieser Absatz hier ist die
-  ausführliche Erklärung, die in der UI keinen Platz hat.
+  jeweiligen Zeile, die process_after bewusst übergehen.
+
+  **Beide Zahlen sichtbar [ergänzt, 2026-08-19]:** Ein deaktivierter Button
+  mit "0 wartend" allein wirkte wie "nichts zu tun", obwohl frische Leads
+  im Korrekturfenster liegen und nur noch nicht dran sind (Marco). Die
+  Oberfläche zeigt deshalb neben dem Button beide Zahlen ("3 Leads im
+  Korrekturfenster, 0 wartend") statt nur die für den Button relevante -
+  liegen ausschließlich Leads im Korrekturfenster, ergänzt der Hinweistext
+  einen Satz, dass diese automatisch verarbeitet werden oder einzeln über
+  die Zeilen-Buttons vorgezogen werden können. Dieser Absatz hier bleibt
+  die ausführliche Erklärung, die in der UI keinen Platz hat.
 - Sortierung: Default älteste unbearbeitete zuerst (Morgen-Workflow), umschaltbar.
 - CSV-Export: Semikolon, UTF-8 BOM, Europe/Berlin, enthält alle Auswertungs- und
   Qualitätsspalten.

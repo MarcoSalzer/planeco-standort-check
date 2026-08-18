@@ -42,7 +42,7 @@ from app.core.spam import SPAM_REASON_LABELS
 from app.db import get_connection, insert_event
 from app.env import get_env
 from app.mail import send_confirmation_email
-from app.retry import count_wartende_leads, retry_one_geocode, run_retry
+from app.retry import count_leads_im_korrekturfenster, count_wartende_leads, retry_one_geocode, run_retry
 from app.submission import NewLeadData, row_to_new_lead_data
 from app.templating import templates
 from app.traffic_light import apply_traffic_light
@@ -276,6 +276,7 @@ def dashboard(request: Request):
         leads = [_decorate_row_safe(row, positions.get(str(row["id"]))) for row in rows]
         filter_options = _fetch_filter_options(conn)
         wartende_leads = count_wartende_leads(conn)
+        leads_im_korrekturfenster = count_leads_im_korrekturfenster(conn)
 
     def url(**overrides) -> str:
         return _dashboard_url(**{**p, **overrides})
@@ -320,6 +321,7 @@ def dashboard(request: Request):
         "status_optionen": [(value, status_label(value)) for value in _MANUALLY_SETTABLE_STATUSES],
         "editierbare_status": _MANUALLY_SETTABLE_STATUSES,
         "wartende_leads": wartende_leads,
+        "leads_im_korrekturfenster": leads_im_korrekturfenster,
     }
     return templates.TemplateResponse(request=request, name="admin_dashboard.html", context=context)
 
