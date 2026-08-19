@@ -437,8 +437,14 @@ Spalten je Gruppe:
 
 Umsetzung: ein `GROUP BY` mit `FILTER`-Aggregaten, in Jinja als Tabelle gerendert.
 Keine Charts, keine JS-Bibliothek — der Wert liegt in den Zahlen, nicht in Balken.
-Zweite Ansicht: Kreuztabelle Kanal × Bundesland (Marcos Frage "welche Region wird
-über welchen Weg besser erfasst"), ebenfalls reines GROUP BY.
+
+**Kreuztabelle Kanal × Bundesland wieder entfernt [2026-08-19]:** Ursprünglich
+als zweite Ansicht geplant (Marcos Frage "welche Region wird über welchen Weg
+besser erfasst"), gebaut und live geprüft. Bei 16 möglichen Bundesländern
+entstehen aber überwiegend leere Zellen, und die Information wiederholt nur
+die Tabelle darüber um eine zusätzliche Achse — kein eigener Erkenntnisgewinn,
+der die zusätzliche Fläche rechtfertigt. Ersatzlos gestrichen, nichts an ihre
+Stelle gesetzt.
 
 **Ehrlichkeits-Hinweis im UI und in den Notizen:** Bei fünf Testleads sind alle Quoten
 statistisch bedeutungslos. Die Ansicht zeigt eine Zeile "Basis: n Anfragen" und blendet

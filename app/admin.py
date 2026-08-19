@@ -1661,7 +1661,6 @@ def auswertung(request: Request):
 
     with get_connection() as conn:
         rows = _fetch_auswertung(conn, group_column)
-        kreuztabelle = _fetch_kreuztabelle(conn)
 
     zeilen = [_decorate_auswertung_row(r) for r in rows]
     gesamt_anfragen = sum(r["anfragen"] for r in zeilen)
@@ -1672,7 +1671,6 @@ def auswertung(request: Request):
         "aktive_gruppierung": gruppierung,
         "zeilen": zeilen,
         "gesamt_anfragen": gesamt_anfragen,
-        "kreuztabelle": kreuztabelle,
         "min_basis": _MIN_BASIS_FUER_QUOTEN,
         "channel_labels": CHANNEL_LABELS,
     }
@@ -1712,28 +1710,6 @@ def _fetch_auswertung(conn: psycopg.Connection, group_column: str) -> list[dict]
             """
         )
         return cur.fetchall()
-
-
-def _fetch_kreuztabelle(conn: psycopg.Connection) -> dict:
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """
-            SELECT channel, geo_state, count(*) AS anzahl
-            FROM leads
-            GROUP BY channel, geo_state
-            """
-        )
-        rows = cur.fetchall()
-
-    kanaele = sorted({r["channel"] or "(keine Angabe)" for r in rows})
-    bundeslaender = sorted({r["geo_state"] or "(keine Angabe)" for r in rows})
-    matrix = {k: {b: 0 for b in bundeslaender} for k in kanaele}
-    for r in rows:
-        k = r["channel"] or "(keine Angabe)"
-        b = r["geo_state"] or "(keine Angabe)"
-        matrix[k][b] = r["anzahl"]
-
-    return {"kanaele": kanaele, "bundeslaender": bundeslaender, "matrix": matrix}
 
 
 def _quote(zaehler: int, nenner: int) -> str:
