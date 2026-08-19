@@ -316,6 +316,24 @@ def _find_dedup_candidate(
     street: str,
     city: str,
 ) -> ExistingLead | None:
+    """Sucht den passendsten Bestandslead, nicht einfach den zeitlich
+    neuesten Treffer über irgendein Kriterium.
+
+    Priorität (erste nicht-leere Gruppe gewinnt, jeweils neuester zuerst):
+    1. Person UND Adresse matchen - stärkster Fall, echte Korrektur derselben
+       Anfrage.
+    2. Nur Person matcht - dieselbe Person, jetzt aber ein Grundstück, das
+       zeitlich nach einem reinen Adresstreffer eines FREMDEN Leads liegen
+       kann. Eine Personenübereinstimmung ist eine stärkere Aussage als eine
+       Adressübereinstimmung: sie identifiziert denselben Menschen, während
+       eine Adresse allein auch zu einer völlig anderen Person gehören kann
+       (F5). Ohne diese Priorisierung hätte ein reiner Zeitstempel-Vergleich
+       (ORDER BY created_at DESC LIMIT 1 über alle drei Kriterien gemeinsam)
+       einen fremden, nur über die Adresse passenden Lead vor die eigene,
+       ältere Anfrage derselben Person stellen können - dann wäre eine echte
+       Korrektur (F3) fälschlich gegen einen Unbeteiligten gelaufen.
+    3. Nur Adresse matcht - schwächster Fall (F5), kann jede beliebige Person sein.
+    """
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
@@ -329,7 +347,16 @@ def _find_dedup_candidate(
                 OR email_normalized = %(email_normalized)s
                 OR (lower(trim(street)) = %(street_norm)s AND lower(trim(city)) = %(city_norm)s)
               )
-            ORDER BY created_at DESC
+            ORDER BY
+              CASE
+                WHEN (phone_e164 = %(phone_e164)s OR email_normalized = %(email_normalized)s)
+                     AND (lower(trim(street)) = %(street_norm)s AND lower(trim(city)) = %(city_norm)s)
+                  THEN 0
+                WHEN phone_e164 = %(phone_e164)s OR email_normalized = %(email_normalized)s
+                  THEN 1
+                ELSE 2
+              END,
+              created_at DESC
             LIMIT 1
             """,
             {

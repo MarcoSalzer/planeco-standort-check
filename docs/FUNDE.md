@@ -664,3 +664,59 @@ verschiedenen Personen an derselben Adresse existierte in den Demo-Daten;
 nichts musste nachträglich korrigiert werden. Das ändert nichts daran,
 dass der Fehler in echtem Betrieb - mit echten, unabhängigen Interessenten
 - aufgetreten wäre.
+
+## Kandidatensuche wählte den zeitlich neuesten Treffer, nicht den passendsten (`app/submission.py::_find_dedup_candidate`)
+
+Beim Verifizieren des F3/F5-Fixes oben (s. vorheriger Eintrag) mit einem
+bewusst dreiparteiigen Testfall - Person A meldet sich, Person B fragt
+danach dasselbe Grundstück an, Person A meldet sich ein zweites Mal, jetzt
+mit einer Korrektur - fiel ein zweiter, eigenständiger Fehler auf: A's
+zweite Anfrage landete nicht als Korrektur (F3) auf A's eigener ersten
+Anfrage, sondern verglich sich mit B's zwischenzeitlich eingegangenem
+Lead. Grund: `_find_dedup_candidate()` wählte unter allen Kandidaten, die
+per Telefon ODER E-Mail ODER Adresse irgendein Kriterium erfüllten,
+schlicht den zeitlich neuesten (`ORDER BY created_at DESC LIMIT 1`) - ganz
+gleich, ob es sich um einen Personentreffer oder nur einen Adresstreffer
+handelte. B's Lead war neuer als A's erster Lead und matchte über die
+Adresse, gewann also den Zeitstempel-Vergleich gegen A's tatsächlich
+passenden, aber älteren Datensatz.
+
+Das ist derselbe Fehlertyp wie der F3/F5-Fund direkt darüber, nur eine
+Ebene tiefer: dort entschied die Prüf-REIHENFOLGE in `dedup_decision()`
+willkürlich, welches Kriterium gewinnt; hier entscheidet der bloße
+ZEITSTEMPEL der Kandidatensuche darüber, welcher DATENSATZ überhaupt zur
+Prüfung antritt - eine Instanz eines Zufallskriteriums (Reihenfolge im
+Code, Zeitpunkt im Datenbestand) an einer Stelle, an der eine fachliche
+Rangfolge gehört.
+
+**Bemerkenswert: der F5-Fix von oben hatte die Auswirkung bereits
+entschärft, bevor die eigentliche Ursache hier behoben war.** Unter der
+alten F3-Regel (Adresse allein genügt) hätte genau dieses Szenario A's
+Korrektur unbemerkt in B's fremden Datensatz gemischt - Feld-Merge
+inklusive, mit B's Kontaktdaten in der Datenbank überschrieben durch A's
+Angaben. Nach dem F5-Fix, aber vor diesem Fix, passierte stattdessen nur
+ein harmloseres, aber immer noch falsches Ergebnis: A's Korrektur wurde
+als eigenständiger neuer Lead mit einem "Grundstück bereits
+angefragt"-Badge auf B anlegt, statt A's echte Vorgängeranfrage
+fortzuführen - kein Datenverlust und keine Vermischung fremder Kontakte
+mehr, aber A's Korrekturkette blieb trotzdem unvollständig (drei separate
+Leads statt einer Kette aus zwei). Zwei unabhängige Fixe, die sich in
+ihrer Wirkung gegenseitig abgeschwächt haben, bevor beide behoben waren -
+ein Hinweis darauf, wie stark verschiedene Symptome derselben
+zugrundeliegenden Frage ("wer/was gewinnt bei mehreren möglichen
+Treffern?") ineinandergreifen.
+
+**Behoben durch eine fachliche Rangfolge in der SQL-Abfrage selbst**, statt
+weiterhin allein nach Zeit zu sortieren: zuerst der neueste Lead, bei dem
+Person UND Adresse matchen; gibt es keinen, der neueste mit reinem
+Personentreffer; gibt es auch den nicht, der neueste mit reinem
+Adresstreffer. Begründung für genau diese Rangfolge: eine
+Personenübereinstimmung ist eine stärkere Aussage als eine
+Adressübereinstimmung, weil sie denselben Menschen identifiziert - eine
+Adresse allein kann zu einer beliebigen anderen Person gehören (genau der
+F5-Fall). Live erneut mit demselben Dreiparteien-Szenario gegen die echte
+Datenbank verifiziert: A's zweite Anfrage läuft jetzt korrekt als F3 auf
+A's eigene erste Anfrage (erbt `status='kontaktiert'`,
+`assigned_to='anna'`, dieselbe Lead-Nummer), B bleibt vollständig
+unberührt - unabhängig davon, dass B zeitlich zwischen A's beiden
+Anfragen lag.
