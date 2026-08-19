@@ -1,6 +1,6 @@
 # Funde während der Implementierung
 
-Arbeitsdokument für die Abgabe-Notizen (`NOTES.md`, Phase 6). Hält Fehler fest,
+Arbeitsdokument für die Abgabe-Notizen (`NOTES.md`). Hält Fehler fest,
 die beim Bauen auftraten und deren Ursache — nicht das, was von Anfang an
 funktioniert hat.
 
@@ -58,7 +58,7 @@ sendet bei fehlendem UTM-Parameter `value=""` statt gar keinen Wert.
 Aufgefallen erst beim Bauen des Auswertungs-Tabs, wo `''` und `NULL` als
 zwei optisch identische, aber tatsächlich getrennte „(keine Angabe)"-
 Gruppen in derselben Auswertung erschienen, nicht beim Schreiben von
-`main.py`s Formular-Parsing selbst. 15 betroffene Bestandszeilen mit
+`main.py`s Formular-Parsing selbst. Betroffene Bestandszeilen mit
 `migrations/0005_null_statt_leerstring_attribution.sql` bereinigt.
 
 ## Fehlendes `state`-Feld bei Stadtstaaten (`app/core/geocoding.py`)
@@ -108,10 +108,10 @@ Bundesland-Namen geprüft - ein einzelner Tippfehler (z.B. `Bayen` statt
 Prüfung läuft jetzt beim Modul-Import (wie `app/config.py` es für
 `MAX_EMAILS_PER_DAY` bereits vormacht) und bricht den Prozessstart mit
 einer Meldung ab, die den ungültigen Wert nennt, statt still auf eine leere
-Menge zurückzufallen. Bestehende Datenbank-Zeilen waren nicht betroffen:
-alle 19 Leads standen zum Zeitpunkt des Funds noch auf
-`geocode_status='offen'` (Block (b), der einzige Aufrufer von `geocode()`,
-war noch nicht gebaut) - es gab nichts zu korrigieren.
+Menge zurückzufallen. Bestehende Datenbank-Zeilen waren nicht betroffen: sie
+standen zum Zeitpunkt des Funds noch alle auf `geocode_status='offen'` (der
+einzige Aufrufer von `geocode()` war noch nicht gebaut) - es gab nichts zu
+korrigieren.
 
 ## `PROCESS_DELAY_MINUTES` ohne Wirkung (`app/submission.py`)
 
@@ -120,36 +120,34 @@ aber nirgends gelesen: `process_after` bekam ausschließlich den
 SQL-Spaltendefault (fest `now() + interval '1 hour'`), nie den Env-Wert. Der
 Wert ließ sich ändern, ohne dass sich am Verhalten etwas änderte - dasselbe
 Muster wie `SERVICE_AREA_STATES=alle`, eine dokumentierte, aber wirkungslose
-Konfiguration. Aufgefallen erst beim Bauen von Phase 4 Block (b)
-(Retry-Endpoint), weil bis dahin kein Code-Pfad `process_after` überhaupt
-auswertete. Behoben: `app/config.py` liest `PROCESS_DELAY_MINUTES` jetzt
-beim Modul-Import (bricht bei fehlendem Wert sofort ab, wie die übrigen
-Kontingent-Werte), `_insert_lead()` setzt `process_after` explizit statt
-sich auf den Spaltendefault zu verlassen - live verifiziert mit
-`PROCESS_DELAY_MINUTES=0`.
+Konfiguration. Aufgefallen erst beim Bauen des Retry-Endpunkts, weil bis
+dahin kein Code-Pfad `process_after` überhaupt auswertete. Behoben:
+`app/config.py` liest `PROCESS_DELAY_MINUTES` jetzt beim Modul-Import
+(bricht bei fehlendem Wert sofort ab, wie die übrigen Kontingent-Werte),
+`_insert_lead()` setzt `process_after` explizit statt sich auf den
+Spaltendefault zu verlassen - live verifiziert mit `PROCESS_DELAY_MINUTES=0`.
 
 ## Eine korrekte Absicherung am falschen Ort legt das ganze Dashboard lahm (`app/core/ampel.py`, `app/admin.py`)
 
-Beim Einführen von `geocode_status='simuliert'` (Migration 0007, Phase 4
-Block b) wurde die Ampel-Regeltabelle (Konzept §B) nicht mitgezogen -
-`ampel()` kennt nur die ihr beim Bauen bekannten Werte und wirft bewusst
-einen `ValueError` bei allem Unbekannten, statt zu raten (CLAUDE.md Regel
-3). Genau dieses richtige Verhalten wurde zum eigentlichen Problem: Marcos
-Rückmeldung dazu trifft es genau - nicht der fehlende Statuswert selbst ist
+Beim Einführen von `geocode_status='simuliert'` wurde die Ampel-Regeltabelle
+(Konzept §B) nicht mitgezogen - `ampel()` kennt nur die ihr beim Bauen
+bekannten Werte und wirft bewusst einen `ValueError` bei allem Unbekannten,
+statt zu raten (CLAUDE.md Regel 3). Genau dieses richtige Verhalten wurde
+zum eigentlichen Problem: nicht der fehlende Statuswert selbst ist
 interessant (ein triviales Nachziehen), sondern dass die Absicherung an der
 falschen Stelle sitzt. `app/admin.py::dashboard` ruft `ampel()` in einer
 Schleife über jede Zeile der Liste auf, ohne jede Isolierung zwischen
-Zeilen - ein einziger Lead mit `geocode_status='simuliert'` (aus dem
-eigenen Live-Test von Block b) brachte deshalb nicht nur diese eine Zeile,
-sondern die komplette Lead-Liste mit einem 500er zum Absturz. Dieselbe
-Absicherung in einer Funktion platziert, die einzeln pro Zeile aufgerufen
-und abgefangen wird - etwa direkt in `_decorate_row` mit einem
-Try/Except, das eine defekte Zeile auffällig, aber isoliert markiert -
-hätte denselben fehlenden Wert nur als eine auffällige Zeile gezeigt, nicht
-als Totalausfall. Aufgefallen durch Marco beim Öffnen des Dashboards, nicht
-bei der Live-Verifikation von Block (b): dort wurden Retry-Endpunkt und
-Datenbankzustand direkt geprüft, das Dashboard selbst aber nie geladen,
-obwohl zu dem Zeitpunkt bereits mehrere eigene Testleads mit
+Zeilen - ein einziger Lead mit `geocode_status='simuliert'` (aus einem
+eigenen Live-Test) brachte deshalb nicht nur diese eine Zeile, sondern die
+komplette Lead-Liste mit einem 500er zum Absturz. Dieselbe Absicherung in
+einer Funktion platziert, die einzeln pro Zeile aufgerufen und abgefangen
+wird - etwa direkt in `_decorate_row` mit einem Try/Except, das eine
+defekte Zeile auffällig, aber isoliert markiert - hätte denselben
+fehlenden Wert nur als eine auffällige Zeile gezeigt, nicht als
+Totalausfall. Aufgefallen beim Öffnen des Dashboards, nicht bei der
+Live-Verifikation des Retry-Endpunkts selbst: dort wurden Retry-Endpunkt
+und Datenbankzustand direkt geprüft, das Dashboard selbst aber nie
+geladen, obwohl zu dem Zeitpunkt bereits mehrere eigene Testleads mit
 `geocode_status='simuliert'` in der Datenbank standen - eine Lücke in der
 eigenen Testtiefe, nicht nur im Code. Behoben: `simuliert` in `ampel()`
 und Konzept §B ergänzt (grau, "Geocoding simuliert (Testmodus, keine echte
@@ -162,16 +160,15 @@ Art still hätte veralten können wie die Regeltabelle selbst.
 ## `pyproject.toml` wurde als Projektdefinition statt als Pytest-Konfiguration gelesen (`pyproject.toml`, `pytest.ini`)
 
 `pyproject.toml` existierte ausschließlich für `[tool.pytest.ini_options]`
-(`pythonpath`/`testpaths`, seit dem Kernlogik-Commit vom 15.08.), ohne
-`[project]`-Abschnitt - für pytest genügt das, da es das Vorhandensein der
-Datei ohne Projektdefinition nie prüft. Vercels neuerer, `uv`-basierter
-Python-Build behandelt die bloße Existenz von `pyproject.toml` dagegen als
-"dieses Projekt erklärt seine Abhängigkeiten hier" und versucht `uv lock`
-dagegen laufen zu lassen - das schlug fehl ("No `project` table found"),
-weil kein `[project]`-Abschnitt existiert. Der Build brach damit komplett
-ab, sichtbar ausschließlich im Vercel-Deployment-Log, nie lokal: `pytest`
-braucht den `[project]`-Abschnitt nicht und lief die ganze Zeit
-klaglos durch.
+(`pythonpath`/`testpaths`), ohne `[project]`-Abschnitt - für pytest genügt
+das, da es das Vorhandensein der Datei ohne Projektdefinition nie prüft.
+Vercels neuerer, `uv`-basierter Python-Build behandelt die bloße Existenz
+von `pyproject.toml` dagegen als "dieses Projekt erklärt seine
+Abhängigkeiten hier" und versucht `uv lock` dagegen laufen zu lassen - das
+schlug fehl ("No `project` table found"), weil kein `[project]`-Abschnitt
+existiert. Der Build brach damit komplett ab, sichtbar ausschließlich im
+Vercel-Deployment-Log, nie lokal: `pytest` braucht den `[project]`-
+Abschnitt nicht und lief die ganze Zeit klaglos durch.
 
 Naheliegend wäre gewesen, nur einen minimalen `[project]`-Abschnitt
 nachzutragen, um den Fehler verschwinden zu lassen. Vor der Entscheidung
@@ -197,40 +194,38 @@ Stattdessen die Ursache entfernt statt umgangen: Pytest-Konfiguration nach
 `[tool.pytest.ini_options]`, sonst inhaltlich identisch), `pyproject.toml`
 gelöscht. Kein Kompromiss, sondern eine Rückkehr zu einem bereits
 nachweislich funktionierenden Stand: Das allererste erfolgreiche
-Vercel-Deployment (Commit `8f70f2f`, FastAPI-Skelett) lief ausschließlich
-über `requirements.txt` + `api/index.py` + `.python-version`, bevor
-`pyproject.toml` einen Commit später überhaupt existierte. Live gegen ein
-echtes Deployment noch nicht verifiziert (folgt mit dem nächsten Deploy),
-lokal lief die volle Testsuite nach der Umstellung unverändert grün.
+Vercel-Deployment (FastAPI-Skelett) lief ausschließlich über
+`requirements.txt` + `api/index.py` + `.python-version`, bevor
+`pyproject.toml` einen Commit später überhaupt existierte. Lokal lief die
+volle Testsuite nach der Umstellung unverändert grün.
 
-Bemerkenswert: derselbe Fundtyp wie der `vercel.json`-Fund vom ersten Abend
-(Commit `80e85a4`, 15.08.) - dort brach der Build an einem ungültigen
-`functions.runtime`-Feld ("python3.12" statt des für Custom-Runtimes
-erwarteten `<paket>@<semver>`-Formats), hier an einer für ein anderes
-Werkzeug angelegten Datei, die Vercel als Projektdefinition liest. Beide
-Fehler sind ausschließlich beim Deployment sichtbar, keiner lokal
-reproduzierbar - Vercels Build-Pipeline interpretiert Konfigurationsdateien
-strenger und anders, als die Werkzeuge, für die sie eigentlich gedacht
-sind.
+Bemerkenswert: derselbe Fundtyp wie ein früherer `vercel.json`-Fund - dort
+brach der Build an einem ungültigen `functions.runtime`-Feld ("python3.12"
+statt des für Custom-Runtimes erwarteten `<paket>@<semver>`-Formats), hier
+an einer für ein anderes Werkzeug angelegten Datei, die Vercel als
+Projektdefinition liest. Beide Fehler sind ausschließlich beim Deployment
+sichtbar, keiner lokal reproduzierbar - Vercels Build-Pipeline
+interpretiert Konfigurationsdateien strenger und anders, als die
+Werkzeuge, für die sie eigentlich gedacht sind.
 
 ## Blockweise Gruppen-Einfärbung war mit dem eigenen Standardfilter unvereinbar (`app/admin.py`, `admin_dashboard.html`)
 
-Die "Blockweise Tönung" vom 17.08. (zusammengehörige Zeilen teilen sich
-einen getönten Hintergrund) wurde gebaut und live geprüft, aber nur mit
-`alle=1` - also mit eingeblendeten Duplikaten/Ersetzt-Zeilen. Im
-STANDARDFILTER (der Normalfall: Duplikate/Ersetzt/Spam/Ausland
-ausgeblendet) enthält jede Lead-Nummer-Gruppe zwangsläufig nur die eine
-aktuell gültige Zeile - die zweite oder dritte Version, die die Tönung
-erst als Gruppe erkennbar machen sollte, ist ja genau das, was der
-Standardfilter wegblendet. Übrig blieb ein bedeutungsloses Zebramuster
-über Einzelzeilen, dazu in Blau - einer Farbe, die als Hervorhebung liest,
-nicht als Dämpfung, also das Gegenteil der beabsichtigten Wirkung. Aufgefallen
-erst, als Marco die Liste als Export/Screenshots durchsah, nicht bei der
-eigenen Live-Verifikation - die lief ausschließlich mit `alle=1`, dem
-einzigen Modus, in dem die Tönung tatsächlich das zeigte, wofür sie gebaut
-wurde. Derselbe blinde Fleck wie beim `geocode_status='simuliert'`-Fund:
-gegen einen unvollständigen Satz an Zuständen getestet, nicht gegen den
-tatsächlichen Standardfall.
+Die "Blockweise Tönung" (zusammengehörige Zeilen teilen sich einen
+getönten Hintergrund) wurde gebaut und live geprüft, aber nur mit `alle=1`
+- also mit eingeblendeten Duplikaten/Ersetzt-Zeilen. Im STANDARDFILTER
+(der Normalfall: Duplikate/Ersetzt/Spam/Ausland ausgeblendet) enthält jede
+Lead-Nummer-Gruppe zwangsläufig nur die eine aktuell gültige Zeile - die
+zweite oder dritte Version, die die Tönung erst als Gruppe erkennbar
+machen sollte, ist ja genau das, was der Standardfilter wegblendet. Übrig
+blieb ein bedeutungsloses Zebramuster über Einzelzeilen, dazu in Blau -
+einer Farbe, die als Hervorhebung liest, nicht als Dämpfung, also das
+Gegenteil der beabsichtigten Wirkung. Aufgefallen erst beim Durchsehen der
+Liste als Export/Screenshots, nicht bei der eigenen Live-Verifikation -
+die lief ausschließlich mit `alle=1`, dem einzigen Modus, in dem die
+Tönung tatsächlich das zeigte, wofür sie gebaut wurde. Derselbe blinde
+Fleck wie beim `geocode_status='simuliert'`-Fund: gegen einen
+unvollständigen Satz an Zuständen getestet, nicht gegen den tatsächlichen
+Standardfall.
 
 Behoben durch Vereinfachung statt Reparatur: Die Tönung ersatzlos entfernt,
 die bereits vorhandene `row-inaktiv`-Dämpfung (Duplikat/Ersetzt/Spam/
@@ -239,14 +234,14 @@ Regel weniger im Kopf, nicht mehr.
 
 ## Eine der fünf Beispieladressen ist in OpenStreetMap auf Straßenebene nicht erfasst (`app/geocoding.py`, `app/core/ampel.py`)
 
-Marco meldete zwei Beobachtungen gleichzeitig: "Am Mühlenteich 7, 23627
+Gemeldet wurden zwei Beobachtungen gleichzeitig: "Am Mühlenteich 7, 23627
 Groß Grönau" (eine der fünf Beispieladressen aus der Aufgabenstellung)
-landete auf `geocode_status='nicht_gefunden'`, und bei "mehreren"
-Hamburger Adressen fehlte das Bundesland - letzteres klang nach einem
-Rückfall des erst kürzlich gebauten Stadtstaaten-Fallbacks (s. den
-Fund oben zu `_extract_geo_state()`). Bevor irgendetwas geändert wurde,
-wurde beides anhand der rohen Nominatim-Antworten untersucht, nicht anhand
-einer Vermutung.
+landete auf `geocode_status='nicht_gefunden'`, und bei mehreren Hamburger
+Adressen fehlte das Bundesland - letzteres klang nach einem Rückfall des
+erst kürzlich gebauten Stadtstaaten-Fallbacks (s. den Fund oben zu
+`_extract_geo_state()`). Bevor irgendetwas geändert wurde, wurde beides
+anhand der rohen Nominatim-Antworten untersucht, nicht anhand einer
+Vermutung.
 
 **Hamburg: falscher Alarm, kein Rückfall-Defekt.** Live gegen die echte
 API getestet: "Osterstraße 88, 22765 Hamburg" und "Alsterufer 1, 20354
@@ -255,7 +250,7 @@ ISO-3166-2-Rückfall (`"ISO3166-2-lvl4": "DE-HH"`), der für diesen Fall
 gebaut wurde. Zusätzlich über die gesamte Datenbank geprüft: kein
 einziger Lead hatte `geocode_status='ok'` mit leerem `geo_state` - der
 Rückfall griff also überall dort, wo er greifen sollte. Der konkrete Lead,
-den Marco vermutlich gesehen hatte (Alsterufer 1), stand auf
+der vermutlich zu der Beobachtung geführt hatte (Alsterufer 1), stand auf
 `geocode_status='simuliert'` (verarbeitet unter `DRY_RUN_GEOCODE=true`) -
 dort wurde nie wirklich bei Nominatim angefragt, ein fehlendes Bundesland
 ist in diesem Zustand das erwartete, dokumentierte Verhalten (Konzept §B
@@ -267,9 +262,9 @@ vorlag).
 **Groß Grönau: echter, reproduzierbarer Befund.** Live nachgestellt mit
 exakt der strukturierten Abfrage der Anwendung
 (`street="Am Mühlenteich 7", postalcode="23627", city="Groß Grönau",
-countrycodes=de`): null Treffer, heute, mit dem bereits reparierten
-Code - keine veraltete Momentaufnahme. Aufgeschlüsselt durch gezielte
-Variation der Parameter (nicht durch Raten):
+countrycodes=de`): null Treffer, mit dem bereits reparierten Code - keine
+veraltete Momentaufnahme. Aufgeschlüsselt durch gezielte Variation der
+Parameter (nicht durch Raten):
 - Nur `city="Groß Grönau"` + `postalcode="23627"` (ohne Straße) → 1
   Treffer, sauber als Dorf in Schleswig-Holstein aufgelöst. Der Ort selbst
   ist in Nominatims Daten also einwandfrei erfasst.
@@ -320,22 +315,22 @@ Ampel gelb mit dem neuen Text - keine Spuren in der Datenbank hinterlassen.
 
 ## Eine Reparatur erzeugte einen schlimmeren Fehler als den behobenen: der Auslandspfad war nie erreichbar, und der erste Fix dafür unscharf (`app/geocoding.py`, `app/core/geocoding.py`, `app/core/ampel.py`)
 
-Der Auslandspfad (Konzept §A) wurde diese Session gebaut und ausschließlich
-mit von Hand konstruierten `GeocodeResult`-Objekten geprüft
-(`in_service_area=False` direkt gesetzt, nie über einen echten Nominatim-
-Aufruf hergeleitet) - dieselbe Annahme, aus der die Notwendigkeit des
-Auslandspfads überhaupt entstand (Konzept §A geht von realen Auslands-
-adressen aus), wurde beim Prüfen nie infrage gestellt. Phase 5 sieht mit
-"Testadresse in Österreich → rot + Auslandsmail" explizit einen Fall vor,
-der genau das prüft - vor dieser Untersuchung war das nie gegen die echte
+Der Auslandspfad (Konzept §A) wurde ausschließlich mit von Hand
+konstruierten `GeocodeResult`-Objekten geprüft (`in_service_area=False`
+direkt gesetzt, nie über einen echten Nominatim-Aufruf hergeleitet) -
+dieselbe Annahme, aus der die Notwendigkeit des Auslandspfads überhaupt
+entstand (Konzept §A geht von realen Auslandsadressen aus), wurde beim
+Prüfen nie infrage gestellt. Die Abnahme-Checkliste sieht mit "Testadresse
+in Österreich → rot + Auslandsmail" explizit einen Fall vor, der genau
+das prüft - vor dieser Untersuchung war das nie gegen die echte
 Nominatim-API gelaufen.
 
 **Ursache gefunden: `app/geocoding.py::geocode()` schränkte jede Abfrage
-auf `countrycodes=de` ein**, seit Phase 4 Block a. Damit konnte eine
-Adresse außerhalb Deutschlands strukturell nie gefunden werden - nicht
-"falsch erkannt", sondern gar nicht erst in der Ergebnismenge. Live
-geprüft: "Stephansplatz 1, 1010 Wien" und "Bahnhofstrasse 1, 8001 Zürich"
-lieferten mit `countrycodes=de` beide null Treffer.
+auf `countrycodes=de` ein.** Damit konnte eine Adresse außerhalb
+Deutschlands strukturell nie gefunden werden - nicht "falsch erkannt",
+sondern gar nicht erst in der Ergebnismenge. Live geprüft: "Stephansplatz
+1, 1010 Wien" und "Bahnhofstrasse 1, 8001 Zürich" lieferten mit
+`countrycodes=de` beide null Treffer.
 
 **Der erste Fix (Ländereinschränkung entfernen) erzeugte einen neuen,
 schlimmeren Fehler.** Ohne `countrycodes=de` sucht Nominatim unscharf -
@@ -358,18 +353,18 @@ insgesamt genau deshalb suchen, weil er sich als korrektes Ergebnis
 tarnt statt als sichtbarer Fehlschlag.
 
 **Zweite Korrekturrunde, zwei getrennte Fixe, beide nach demselben
-Prinzip.** Marcos Diagnose traf den gemeinsamen Nenner: eine Prüfung muss
-unterscheiden zwischen "der Wert widerspricht der Eingabe" und "es gibt
-schlicht keinen Wert". Beides gleich zu behandeln erzeugt falsche
-Negative (oder hier: falsche Positive) - und dasselbe Muster trat in
-dieser Session bereits ein drittes Mal auf, nur unbemerkt: `app/core/
+Prinzip.** Der gemeinsame Nenner: eine Prüfung muss unterscheiden
+zwischen "der Wert widerspricht der Eingabe" und "es gibt schlicht
+keinen Wert". Beides gleich zu behandeln erzeugt falsche Negative (oder
+hier: falsche Positive) - und dasselbe Muster trat im Verlauf der
+Untersuchung bereits ein drittes Mal auf, nur unbemerkt: `app/core/
 ampel.py` prüft "kein Telefon angegeben" bewusst über `phone_raw` statt
 `phone_e164`, weil `normalize_phone()` bei jedem unlesbaren UND bei jedem
 fehlenden Wert gleichermaßen `phone_e164=None` liefert - `phone_e164 IS
 NULL` konnte "nichts eingetragen" nie von "etwas Unlesbares eingetragen"
 unterscheiden, obwohl Konzept §B dafür zwei verschiedene Texte vorsieht.
 Dieselbe Verwechslungsgefahr, drei verschiedene Felder (Telefon, jetzt PLZ
-und Bundesland/Land), zufällig alle drei in diesem Case aufgetreten.
+und Bundesland/Land), zufällig alle drei in diesem Fall aufgetreten.
 
 1. **PLZ-Abgleich (`app/core/geocoding.py::parse_nominatim_results`):**
    Eine PLZ, die in Nominatims Antwort schlicht FEHLT (Verwaltungsgrenzen-
@@ -407,27 +402,27 @@ zweite Mail lief simuliert durch - der Auslandspfad löst zum ersten Mal
 Testdaten.
 
 **Als Nebenbefund bestätigt, nicht neu behoben:** "Lindenweg 3, Neustadt"
-ohne PLZ (Aufgabenbeispiel) ergibt mit dem strengen Ortsnamen-Abgleich
-jetzt `nicht_gefunden` statt `mehrdeutig`, weil keiner von Nominatims drei
-Kandidaten exakt "Neustadt" heißt (sondern "Neustadt im Schwarzwald" usw.).
-Mit Marco abgestimmt: Verhalten ist so richtig, bewusst nicht auf
-Teilstring-Toleranz aufgeweicht - das wäre derselbe Fehlertyp wie der
-Bayern-Weiler-Fund, nur eine Stufe vorsichtiger versteckt.
+ohne PLZ (Aufgabenbeispiel) ergab mit dem (zu diesem Zeitpunkt noch
+gültigen) strengen Ortsnamen-Abgleich `nicht_gefunden` statt `mehrdeutig`,
+weil keiner von Nominatims drei Kandidaten exakt "Neustadt" heißt (sondern
+"Neustadt im Schwarzwald" usw.) - abgestimmt zunächst als richtiges
+Verhalten eingestuft, bewusst nicht auf Teilstring-Toleranz aufgeweicht.
+Diese Einschätzung erwies sich später selbst als Fehler, s. den Fund weiter
+unten dazu.
 
 ## Ein Testfall überschrieb kurzzeitig einen echten Beispiel-Lead (`scripts/testlauf.py`, `app/submission.py`)
 
-Beim automatisierten Testlauf über die neuen Phase-5-Randfälle (Geocoding-
-Rückfälle, Auslandspfad, Korrekturfenster) verwendete ein neuer Testfall
+Beim automatisierten Testlauf über die Geocoding-Rückfälle, den
+Auslandspfad und das Korrekturfenster verwendete ein neuer Testfall
 versehentlich exakt dieselbe Adresse ("Am Mühlenteich 7, Groß Grönau") wie
-der echte Beispiel-Lead `lead_nummer 15` - eine der fünf Aufgaben-
-Beispieladressen, zu diesem Zeitpunkt bereits in der Datenbank.
-`persist_submission()` erkennt eine Straße+Ort-Übereinstimmung als F3-Match,
-unabhängig davon, ob der Vorgänger ein echter Lead oder ein eigener
-Testdatensatz ist - aus Sicht der Dedup-Logik gibt es diesen Unterschied
-nicht, und im Normalfall ist das genau richtig so. Die Testabgabe wurde
-deshalb als Korrektur des echten Leads behandelt: der echte Lead wurde auf
-`status='ersetzt'` gesetzt, ein Fake-Testdatensatz wurde die neue führende
-Version.
+ein echter Beispiel-Lead - eine der fünf Aufgaben-Beispieladressen, zu
+diesem Zeitpunkt bereits in der Datenbank. `persist_submission()` erkennt
+eine Straße+Ort-Übereinstimmung als F3-Match, unabhängig davon, ob der
+Vorgänger ein echter Lead oder ein eigener Testdatensatz ist - aus Sicht
+der Dedup-Logik gibt es diesen Unterschied nicht, und im Normalfall ist
+das genau richtig so. Die Testabgabe wurde deshalb als Korrektur des
+echten Leads behandelt: der echte Lead wurde auf `status='ersetzt'`
+gesetzt, ein Fake-Testdatensatz wurde die neue führende Version.
 
 Aufgefallen, weil das anschließende automatische Aufräumen des Testlaufs
 (löscht nur selbst erzeugte Testzeilen) an einer Fremdschlüssel-Verkettung
@@ -455,11 +450,11 @@ jedem risikobehafteten Testfall (und einmal zentral für den von ~15 Fällen
 gemeinsam genutzten Default "Teststraße 1"/"Teststadt") hart ab, wenn die
 Adresse bereits einem echten (nicht `testlauf-%`) Lead gehört, statt eine
 Kollision einzugehen. Betroffene Testadressen auf eindeutig erfundene
-Straßen in denselben Orten umgestellt. Die Absicherung wurde am 19.08. ein
-zweites Mal wirksam: sie brach den Testlauf beim Aufgabenbeispiel
-"Lindenweg 3, Neustadt" korrekt mit einer klaren Fehlermeldung ab, weil
-dort inzwischen Marcos echter, live eingetippter Beispiel-Lead stand -
-ohne erneute Kollision.
+Straßen in denselben Orten umgestellt. Die Absicherung wurde später ein
+zweites Mal wirksam: sie brach einen weiteren Testlauf beim
+Aufgabenbeispiel "Lindenweg 3, Neustadt" korrekt mit einer klaren
+Fehlermeldung ab, weil dort inzwischen ein echter, über das Formular live
+eingetippter Beispiel-Lead stand - ohne erneute Kollision.
 
 ## Eine Testerwartung meldete einen bereits behobenen Fehler als offenen Fund (`scripts/testlauf.py`)
 
@@ -468,7 +463,7 @@ Fix aus „heard_about ohne Server-Validierung" oben (Rohwert gespeichert,
 `channel='sonstiges'`). Der Fix landete, die Testerwartung wurde dabei nicht
 nachgezogen - das tatsächliche, korrekte Verhalten (`heard_about=None`,
 `channel='direkt'`, Rohwert im Event `unerwarteter_feldwert` erhalten)
-erschien dadurch in `docs/TESTLAUF.md` als „Fund für Marco", obwohl es genau
+erschien dadurch in `docs/TESTLAUF.md` als offener Fund, obwohl es genau
 der gewünschte, bereits gebaute Zustand war. Aufgefallen beim Gegenlesen vor
 dem nächsten Testlauf, nicht durch eine Codeänderung. Derselbe Fehlertyp wie
 beim `geocode_status='simuliert'`-Fund oben, nur einen Schritt weiter hinten
@@ -480,9 +475,9 @@ Anwendungscode oder im Testcode steht. Testerwartung korrigiert
 
 ## Env-Variable mit Trailing-Newline legte den Mailversand lahm (`app/mail.py`, alle Env-Lesestellen)
 
-Marco meldete beim Testen gegen die echte Vercel-Instanz: die Bestätigungsmail
-schlug mit `Illegal header value` fehl. Ursache: `BREVO_API_KEY` enthielt in
-Vercels Env-Konfiguration einen Zeilenumbruch am Ende - vermutlich aus der
+Beim Testen gegen die echte Vercel-Instanz schlug die Bestätigungsmail mit
+`Illegal header value` fehl. Ursache: `BREVO_API_KEY` enthielt in Vercels
+Env-Konfiguration einen Zeilenumbruch am Ende - vermutlich aus der
 Zwischenablage beim Einfügen mitkopiert. `os.environ["BREVO_API_KEY"]` gab den
 Wert unverändert inklusive `\n` zurück, `httpx` verweigerte den daraus gebauten
 HTTP-Header mit genau dieser Meldung. Anders als bei den in diesem Dokument
@@ -491,7 +486,7 @@ bereits mehrfach behandelten Konfigurationsfunden (`SERVICE_AREA_STATES=alle`,
 optisch von einem korrekten zu unterscheiden - ein Zeilenumbruch am Ende
 eines Copy&Paste-Werts ist in den meisten Eingabefeldern unsichtbar.
 
-Marco reparierte den Wert selbst in Vercel, aber die eigentliche Lücke war
+Der Wert wurde direkt in Vercel repariert, aber die eigentliche Lücke war
 strukturell: JEDE Stelle im Code, die `os.environ` direkt liest, war für
 denselben Fehlertyp anfällig, nicht nur `BREVO_API_KEY` - DATABASE_URL,
 SESSION_SECRET, ADMIN_PASSWORD_HASH, EDIT_TOKEN_SECRET, RETRY_SECRET,
@@ -511,7 +506,7 @@ Lesestellen in `app/config.py`, `app/db.py`, `app/mail.py`, `app/main.py`,
 `os.environ` mehr direkt. Mit `monkeypatch.setenv` getestet (Whitespace/
 Newline am Rand entfernt, interner Whitespace bleibt erhalten - z.B. eine
 Telefonnummer mit Leerzeichen in `KONTAKT_TELEFON` darf nicht verstümmelt
-werden). Nebenwirkung, mit Marco nicht weiter abgestimmt, aber erwähnenswert:
+werden). Nebenwirkung, erwähnenswert auch ohne unmittelbaren Handlungsbedarf:
 falls `SESSION_SECRET` auf Vercel selbst einen Trailing-Newline enthält, wird
 sie durch diesen Fix erstmals korrekt (gestrippt) gelesen - bereits
 ausgestellte Admin-Sessions würden dadurch beim nächsten Deploy ungültig,
@@ -520,7 +515,7 @@ Session-Reset.
 
 ## Ort- und PLZ-Feld vertauscht, Geocoding lief unbemerkt ins Leere (`app/core/validation.py`)
 
-Marco meldete beim Testen: PLZ versehentlich ins Ortsfeld getippt, Ortsfeld
+Beim Testen fiel auf: PLZ versehentlich ins Ortsfeld getippt, Ortsfeld
 leer gelassen. `validate_submission()` verlangt PLZ ohnehin nicht (optional,
 Konzept §3.1) und prüft `city` nur auf "irgendein Zeichen vorhanden" - eine
 reine Ziffernfolge im Ortsfeld ist damit ein gültiger Submit. Nominatim
@@ -544,8 +539,8 @@ enthaltenen Ziffern (z.B. ein Nummernzusatz) bleibt zulässig.
 
 ## Die eigene Verschärfung des Ortsnamen-Abgleichs war selbst der Rückschritt (`app/core/geocoding.py`)
 
-Der exakte Ortsnamen-Vergleich vom 18.08. (Fund "Bayern-Weiler bei Wien",
-s. oben) hatte eine echte Lücke geschlossen (ein zu großzügiger Abgleich
+Der exakte Ortsnamen-Vergleich (Fund "Bayern-Weiler bei Wien", s. oben)
+hatte eine echte Lücke geschlossen (ein zu großzügiger Abgleich
 akzeptierte einen unscharf gefundenen falschen Ort), aber gleichzeitig
 den eigentlichen Sinn eines der fünf Aufgabenbeispiele zerstört: "Lindenweg
 3, Neustadt" soll laut Aufgabe `mehrdeutig` ergeben (Nominatim findet
@@ -553,9 +548,9 @@ den eigentlichen Sinn eines der fünf Aufgabenbeispiele zerstört: "Lindenweg
 Württemberg, Schleswig-Holstein, Sachsen). Der exakte Vergleich verlangte
 aber `"neustadt" == "neustadt im schwarzwald"` - das ist nie wahr, also
 bestand kein einziger Kandidat den Ortsnamen-Filter, Ergebnis
-`nicht_gefunden` statt `mehrdeutig`. Marco fand das erst beim Live-Test
-mit dem echten Formular am 19.08., einen Tag nach der Einführung - die
-damalige Testerwartung (`test_lindenweg_neustadt_mit_wortlaut_eingabe_
+`nicht_gefunden` statt `mehrdeutig`. Das fiel erst beim Live-Test mit dem
+echten Formular auf, einen Tag nach der Einführung - die damalige
+Testerwartung (`test_lindenweg_neustadt_mit_wortlaut_eingabe_
 ist_jetzt_nicht_gefunden`) hatte das neue, aber falsche Verhalten korrekt
 abgebildet und damit den Fehler mitbestätigt, statt ihn zu fangen (ein
 Test kann nur falsch sein, wenn die Erwartung selbst falsch ist).
@@ -601,8 +596,8 @@ komplette `leads`-Tabelle lesen und schreiben können - über einen
 Zugriffsweg, der in keinem Anwendungscode vorkommt und deshalb bei einer
 reinen Code-Durchsicht nie aufgefallen wäre.
 
-Von Marco behoben: RLS auf allen drei Tabellen eingeschaltet. Verifiziert
-gegen die echte Datenbank (read-only, `pg_class`/`pg_roles`/`pg_policies`):
+Behoben: RLS auf allen drei Tabellen eingeschaltet. Verifiziert gegen die
+echte Datenbank (read-only, `pg_class`/`pg_roles`/`pg_policies`):
 `relrowsecurity=true` für `leads`, `lead_events`, `usage_counters`; die
 Anwendung verbindet als Rolle `postgres` mit `rolbypassrls=true` - Owner-
 Rollen umgehen RLS grundsätzlich, unabhängig von Policies, deshalb läuft
@@ -614,9 +609,9 @@ Rollen, wird jetzt vollständig abgewiesen, nicht nur eingeschränkt.
 
 Muster: Eine Absicherung, die für den gewählten, tatsächlich genutzten
 Zugriffsweg irrelevant aussieht, ist es für einen zweiten, unbeabsichtigt
-offen gebliebenen Weg nicht (Marco). Anders als die übrigen Funde in
-diesem Dokument liegt die Lücke hier nicht im Anwendungscode, sondern auf
-der verwaltete Infrastruktur-Ebene (Supabase-Plattform) - dieselbe
+offen gebliebenen Weg nicht. Anders als die übrigen Funde in diesem
+Dokument liegt die Lücke hier nicht im Anwendungscode, sondern auf der
+verwalteten Infrastruktur-Ebene (Supabase-Plattform) - dieselbe
 Anwendung war die ganze Zeit korrekt, während parallel dazu ein zweiter,
 von der Anwendung nie genutzter Zugriffsweg offen stand, den eine reine
 Anwendungscode-Durchsicht nicht zeigen kann.

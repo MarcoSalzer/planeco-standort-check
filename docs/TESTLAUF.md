@@ -1,6 +1,6 @@
 # Testlauf: Randfälle
 
-Programmatischer Testlauf gegen die echte Datenbank über `scripts/testlauf.py` (POST /submit + direkte DB-Prüfung, kein Mock, kein pytest-Ersatz - die reinen Funktionen bleiben in `tests/core/`). Erstellt am 18.08.2026. Testdaten wurden nach dem Lauf gelöscht (exakt getrackte IDs, kein Muster-Löschen).
+Programmatischer Testlauf gegen die echte Datenbank über `scripts/testlauf.py` (POST /submit + direkte DB-Prüfung, kein Mock, kein pytest-Ersatz - die reinen Funktionen bleiben in `tests/core/`). Testdaten wurden nach dem Lauf gelöscht (exakt getrackte IDs, kein Muster-Löschen).
 
 **Ergebnis: 40/41 Fälle wie erwartet.** 1 Abweichung(en), s. unten.
 
@@ -44,25 +44,25 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 ### ✅ Honeypot gefüllt
 
-**Erwartet:** is_spam=true, spam_reason='honeypot_gefuellt', status='spam' (Konzept §J + Fix aus der letzten Session), keine Mail (email_status='uebersprungen').
+**Erwartet:** is_spam=true, spam_reason='honeypot_gefuellt', status='spam' (Konzept §J), keine Mail (email_status='uebersprungen').
 
 **Tatsächlich:** HTTP 303; is_spam=True, spam_reason='honeypot_gefuellt', status='spam', email_status='uebersprungen'
 
 ### ✅ Zu schnell abgesendet
 
-**Erwartet:** is_spam=true, spam_reason='zu_schnell_abgesendet', status='spam' (Konzept §J + Fix aus der letzten Session), keine Mail (email_status='uebersprungen').
+**Erwartet:** is_spam=true, spam_reason='zu_schnell_abgesendet', status='spam' (Konzept §J), keine Mail (email_status='uebersprungen').
 
 **Tatsächlich:** HTTP 303; is_spam=True, spam_reason='zu_schnell_abgesendet', status='spam', email_status='uebersprungen'
 
 ### ✅ Zwei oder mehr Links in der Anmerkung
 
-**Erwartet:** is_spam=true, spam_reason='zu_viele_links_in_anmerkung', status='spam' (Konzept §J + Fix aus der letzten Session), keine Mail (email_status='uebersprungen').
+**Erwartet:** is_spam=true, spam_reason='zu_viele_links_in_anmerkung', status='spam' (Konzept §J), keine Mail (email_status='uebersprungen').
 
 **Tatsächlich:** HTTP 303; is_spam=True, spam_reason='zu_viele_links_in_anmerkung', status='spam', email_status='uebersprungen'
 
 ### ✅ Fremdes Schriftsystem in der Anmerkung
 
-**Erwartet:** is_spam=true, spam_reason='fremdes_schriftsystem_in_anmerkung', status='spam' (Konzept §J + Fix aus der letzten Session), keine Mail (email_status='uebersprungen').
+**Erwartet:** is_spam=true, spam_reason='fremdes_schriftsystem_in_anmerkung', status='spam' (Konzept §J), keine Mail (email_status='uebersprungen').
 
 **Tatsächlich:** HTTP 303; is_spam=True, spam_reason='fremdes_schriftsystem_in_anmerkung', status='spam', email_status='uebersprungen'
 
@@ -114,7 +114,7 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 ### ⚠️ heard_about='TikTok-Anzeige' (nicht in Optionsliste)
 
-**Erwartet:** validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS (anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz - Fund für Marco.
+**Erwartet:** validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS (anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz.
 
 **Tatsächlich:** HTTP 303; heard_about=None, channel='direkt', channel_source='keine'
 
@@ -278,4 +278,4 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 ## Abweichungen (zur Entscheidung, nicht selbst repariert)
 
-- **Auswahlfelder / heard_about='TikTok-Anzeige' (nicht in Optionsliste)** — erwartet: validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS (anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz - Fund für Marco. — tatsächlich: HTTP 303; heard_about=None, channel='direkt', channel_source='keine'
+- **Auswahlfelder / heard_about='TikTok-Anzeige' (nicht in Optionsliste)** — erwartet: validate_submission() prüft heard_about NICHT gegen HEARD_ABOUT_OPTIONS (anders als contact_time_preference) -> ich erwarte HTTP 303, Lead wird mit heard_about='TikTok-Anzeige' (roh) gespeichert, derive_channel() kennt den Wert nicht und fällt auf channel='sonstiges' zurück. Das ist eine echte Lücke (Validierungs-Inkonsistenz), kein Absturz. — tatsächlich: HTTP 303; heard_about=None, channel='direkt', channel_source='keine'

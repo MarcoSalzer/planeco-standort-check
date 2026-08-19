@@ -1,10 +1,10 @@
 # Standort-Check: Datenmodell & Pipeline-Konzept (v3)
 
-Arbeitsdokument. v3 nach zweiter Review-Runde mit Marco: Pflichtfeld-Logik minimiert,
+Arbeitsdokument. v3 nach zweiter Review-Runde: Pflichtfeld-Logik minimiert,
 Ampel auf Bearbeitbarkeit umgestellt, Feld-Merge bei Korrektur, Auswertungs-Tab,
 deutsche Statuswerte, Attributionslogik korrigiert.
 
-v2 war die erste Review-Runde mit Marco: neue Formularfelder, überarbeitete
+v2 war die erste Review-Runde: neue Formularfelder, überarbeitete
 Duplikat-Semantik (Korrektur via erneutem Absenden), Mail bei jedem Submit,
 Datenqualität pro Kanal, Einzugsgebiet-Recherche. Änderungen ggü. v1: **[v2]**.
 
@@ -98,7 +98,7 @@ create table leads (
   contact_time_preference text
                       check (contact_time_preference in
                              ('vormittags','nachmittags','abends','flexibel')
-                             -- 'abends' bei Implementierung ergänzt, 2026-08-16,
+                             -- 'abends' bei Implementierung ergänzt,
                              -- Migration 0004_contact_time_abends.sql
                              or contact_time_preference is null),
   message             text,                          -- Anmerkungen/Fragen
@@ -157,13 +157,13 @@ create index on leads (content_hash);
 ```
 
 `email_status='uebersprungen'` [umbenannt von `'skipped'` bei Implementierung,
-2026-08-16, Migration `0003_email_status_uebersprungen.sql` — `'skipped'` war ein
+Migration `0003_email_status_uebersprungen.sql` — `'skipped'` war ein
 Übernahme-Fehler aus dem englischen Wortlaut hier im Fließtext, K8 verlangt
 deutsche Statuswerte]: für Spam-Fälle, bei denen bewusst kein Versandversuch
 unternommen wird (§E). Für duplicate-Einträge nicht relevant — aktuell wird
 immer gesendet (§4).
 
-`email_status='simuliert'` [bei Implementierung ergänzt, 2026-08-15, Migration
+`email_status='simuliert'` [bei Implementierung ergänzt, Migration
 `0002_email_status_simuliert.sql`]: für `DRY_RUN_EMAIL=true`. Läuft die komplette
 Mail-Logik (Statusfelder, Events, Tageslimit-Zähler) durch, nur der echte
 Brevo-Aufruf unterbleibt — ohne eigenen Wert wäre ein Dry-Run von einem echten
@@ -183,7 +183,7 @@ create table lead_events (
 
 Event-Typen (deutsch, s. K8): `erstellt`, `status_geaendert`, `zugewiesen`,
 `mail_gesendet`, `mail_fehlgeschlagen`, `geocodiert`, `erneut_angefragt`, `ersetzt`,
-`kontakt_bekannt` [bei Implementierung ergänzt, 2026-08-15].
+`kontakt_bekannt` [bei Implementierung ergänzt].
 
 `kontakt_bekannt`: F4 (Konzept §4) - gleiche Person, anderes Grundstück - hat in
 §2 keine eigene Speicherung; `duplicate_of`/`superseded_by` decken nur F2/F3 ab.
@@ -252,7 +252,7 @@ Sales-Team kontaktiert"). Datenvollständigkeit ist deshalb ein Ziel für den Ze
 Adressblock klar überschrieben ("Adresse des Grundstücks"), autocomplete-Attribute
 für Mobil, optionale Felder sichtbar als "(optional)" markiert.
 
-**PLZ-Format korrigiert [2026-08-18, mit Marco abgestimmt]:** Ursprünglich
+**PLZ-Format korrigiert:** Ursprünglich
 deutsches 5-stelliges Zahlenformat. Zum Zeitpunkt der Formularprüfung ist aber
 noch nicht bekannt, in welchem Land das Grundstück liegt — das klärt erst das
 Geocoding danach (§B). Eine 5-stellige Pflicht blockierte deshalb echte
@@ -374,7 +374,7 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
 - Aktionen: Status ändern, assigned_to setzen, disqualify_reason, "Mail erneut
   senden", "Geocoding erneut", globaler Retry-Button.
 
-  **Globaler Retry-Button vs. Zeilen-Buttons [präzisiert, 2026-08-19]:** Der
+  **Globaler Retry-Button vs. Zeilen-Buttons [präzisiert]:** Der
   globale Button ist für den Ausnahmefall gedacht — ein Dienst (Nominatim/
   Brevo) war zwischenzeitlich ausgefallen, mehrere Leads sind liegen
   geblieben. Er respektiert das Korrekturfenster (process_after, §G) und
@@ -384,9 +384,9 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
   zeigen soll) gibt es stattdessen die Buttons "Geocoding"/"Mail" in der
   jeweiligen Zeile, die process_after bewusst übergehen.
 
-  **Beide Zahlen sichtbar [ergänzt, 2026-08-19]:** Ein deaktivierter Button
+  **Beide Zahlen sichtbar [ergänzt]:** Ein deaktivierter Button
   mit "0 wartend" allein wirkte wie "nichts zu tun", obwohl frische Leads
-  im Korrekturfenster liegen und nur noch nicht dran sind (Marco). Die
+  im Korrekturfenster liegen und nur noch nicht dran sind. Die
   Oberfläche zeigt deshalb neben dem Button beide Zahlen ("3 Leads im
   Korrekturfenster, 0 wartend") statt nur die für den Button relevante -
   liegen ausschließlich Leads im Korrekturfenster, ergänzt der Hinweistext
@@ -398,7 +398,7 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
   Qualitätsspalten.
 
 **Bewusste Entscheidung: keine Dateneingabe-Felder editierbar außer Status
-und assigned_to [Marco, 2026-08-19].** Straße/PLZ/Ort/E-Mail/Telefon/Name und
+und assigned_to.** Straße/PLZ/Ort/E-Mail/Telefon/Name und
 alle übrigen vom Interessenten übermittelten Angaben lassen sich im Dashboard
 nirgends direkt ändern — auch nicht in der Detailansicht. Nur die beiden
 internen Sales-Workflow-Felder (`status`, `assigned_to`, dazu `disqualify_reason`
@@ -437,7 +437,7 @@ Spalten je Gruppe:
 | Anfragen | Volumen |
 | Qualifiziert / Disqualifiziert / Offen | Ergebnis |
 | Qualifizierungsquote | "taugt der Kanal" |
-| Eigentümer-Anteil | Lead-Güte vorab (Marcos Frage: kommen von Google mehr Eigentümer?) |
+| Eigentümer-Anteil | Lead-Güte vorab (Leitfrage: kommen von Google mehr Eigentümer?) |
 | Ø Zeit bis Erstkontakt | Prozessqualität (aus `contacted_at`, s. lead_events) |
 | Telefon unlesbar % | Datenqualität je Kanal |
 | Adresse unklar % | Datenqualität je Kanal |
@@ -446,8 +446,8 @@ Spalten je Gruppe:
 Umsetzung: ein `GROUP BY` mit `FILTER`-Aggregaten, in Jinja als Tabelle gerendert.
 Keine Charts, keine JS-Bibliothek — der Wert liegt in den Zahlen, nicht in Balken.
 
-**Kreuztabelle Kanal × Bundesland wieder entfernt [2026-08-19]:** Ursprünglich
-als zweite Ansicht geplant (Marcos Frage "welche Region wird über welchen Weg
+**Kreuztabelle Kanal × Bundesland wieder entfernt:** Ursprünglich
+als zweite Ansicht geplant (Leitfrage "welche Region wird über welchen Weg
 besser erfasst"), gebaut und live geprüft. Bei 16 möglichen Bundesländern
 entstehen aber überwiegend leere Zellen, und die Information wiederholt nur
 die Tabelle darüber um eine zusätzliche Achse — kein eigener Erkenntnisgewinn,
@@ -465,8 +465,8 @@ zu Google/Meta (Daten liegen via gclid/fbclid bereit — Notizen-Punkt).
 ## 8. Entscheidungen aus der Review-Runde [v2]
 
 **K1 — Keine separate Wohnadresse der Person; Kontaktdaten bleiben Pflicht.**
-Marcos Vorschlag "Personenangaben optional, nur Grundstück Pflicht" kollidiert mit
-seinem eigenen Datenbank-Punkt (ohne Tel/E-Mail kein Kontaktweg → Lead wertlos)
+Der Vorschlag "Personenangaben optional, nur Grundstück Pflicht" kollidiert mit
+dem eigenen Datenbank-Punkt (ohne Tel/E-Mail kein Kontaktweg → Lead wertlos)
 und mit der Pflicht-Bestätigungsmail (braucht E-Mail) sowie dem Kernprozess
 "wird anschließend vom Sales-Team kontaktiert" (braucht Telefon). Aufgelöst:
 Name/E-Mail/Telefon Pflicht, als Adresse existiert NUR das Grundstück (Aufgabe
@@ -476,7 +476,7 @@ deckt die Beziehung Person↔Grundstück ab, ohne sechs Adressfelder.
 **K2 — Nichts wird gespeichert-und-weggeworfen.** Statt "leere Einträge wegwerfen":
 Pflichtfelder werden client- UND serverseitig erzwungen; ein unvollständiger Submit
 wird mit 422 abgelehnt und das Formular mit erhaltenen Eingaben re-rendert. Stilles
-Verwerfen widerspräche Marcos eigenem "Daten nicht wegschmeißen"-Prinzip; ein
+Verwerfen widerspräche dem eigenen "Daten nicht wegschmeißen"-Prinzip; ein
 regulärer Nutzer kann den Fall gar nicht erzeugen, nur direkte Bot-POSTs.
 
 **K3 — Vor-/Nachname-Vertauschung kann nicht auftreten.** Der klassische ETL-Fall
@@ -496,7 +496,7 @@ liefert denselben Nutzen gratis. Edit-Link = Notizen-Punkt "nächster Schritt".
 
 **K5 — Hotline nicht baubar im Rahmen** (s. §5).
 
-**K7 — Entweder-E-Mail-oder-Telefon verworfen.** Marcos Vorschlag (nur ein Kontaktweg
+**K7 — Entweder-E-Mail-oder-Telefon verworfen.** Der Vorschlag (nur ein Kontaktweg
 Pflicht) erhöht die Conversion, kollidiert aber mit Pflichtteil 3: ohne E-Mail-Adresse
 kann die geforderte automatische Bestätigungsmail nicht auslösen. Ein Lead ohne
 Bestätigung wäre eine still ausbleibende Pflichtfunktion. Gewählt: E-Mail Pflicht,
@@ -512,7 +512,7 @@ Werte: `neu, kontaktiert, qualifiziert, disqualifiziert, duplikat, ersetzt, spam
 Events: `erstellt, status_geaendert, zugewiesen, mail_gesendet, mail_fehlgeschlagen,
 geocodiert, erneut_angefragt, ersetzt`.
 
-**K6 — Mail bei jedem Submit-Vorgang** (Marcos Regel, §4) — ersetzt die alte
+**K6 — Mail bei jedem Submit-Vorgang** (§4) — ersetzt die alte
 24h-Unterscheidung. Einfacher und kundenfreundlicher; interner Einmal-Kontakt ist
 über die Führend-Logik gesichert.
 
@@ -587,7 +587,7 @@ darf aber nicht warten.
 - Angebot, sich zu melden, sobald der Dienst im DACH-Raum verfügbar ist —
   als **aktive Zustimmung**, nicht automatisch: ein Antwort-Satz genügt, oder ein
   Häkchen bereits im Formular (ursprünglich "Bitte informieren Sie mich über neue
-  Regionen" — bei Implementierung korrigiert, 2026-08-19, s. u.: das Formular weiß
+  Regionen" — bei Implementierung korrigiert, s. u.: das Formular weiß
   beim Ausfüllen noch nicht, dass die Adresse später als Ausland erkannt wird, der
   Regionsbezug ergab für die meisten Ausfüllenden keinen Sinn).
 - **Keine automatische Weitergabe an Partner.** Eine Datenweitergabe an ein
@@ -598,7 +598,7 @@ darf aber nicht warten.
 
 Das ist zugleich ein guter Notizen-Punkt: erkannte Rechtsgrenze, sauber gelöst statt
 ignoriert. Feld `expansion_opt_in boolean` im Formular (optional, unauffällig)
-[umbenannt zu `marketing_opt_in`, 2026-08-19, Migration `0014_marketing_opt_in.sql`
+[umbenannt zu `marketing_opt_in`, Migration `0014_marketing_opt_in.sql`
 - allgemeines Marketing-Opt-in im Formular ("neue Angebote und Entwicklungen"),
 nur die Auslandsmail selbst reflektiert weiterhin gezielt den Regionsbezug, wenn
 gesetzt, weil dort der Kontext klar ist].
@@ -625,13 +625,13 @@ Auswertung von oben nach unten, erste zutreffende Regel gewinnt.
 | 14 | sonst | 🟢 | "Vollständig" |
 
 Zeilen 6 und 7 [bei Implementierung ergänzt: 6 mit §G/Phase 4 Block (a),
-2026-08-16; 7 mit Phase 4 Block (b), 2026-08-17, Fund s. docs/FUNDE.md -
+7 mit Phase 4 Block (b), Fund s. docs/FUNDE.md -
 beide fehlten zunächst in dieser Tabelle, obwohl der Code sie schon
 kannte]. `entfaellt`: Vorgänger einer F3-Korrektur, dessen Geocoding noch
 offen war (§G). `simuliert`: `DRY_RUN_GEOCODE=true`, kein echter
 Nominatim-Aufruf.
 
-Zeile 9 (`nur_ort`) [bei Implementierung ergänzt, 2026-08-18, Fund s.
+Zeile 9 (`nur_ort`) [bei Implementierung ergänzt, Fund s.
 docs/FUNDE.md]: eine der fünf Beispieladressen der Aufgabe ("Am
 Mühlenteich 7, 23627 Groß Grönau") ist in OpenStreetMap auf Straßenebene
 nicht erfasst, obwohl der Ort selbst sauber auflösbar ist. Statt das als
@@ -645,7 +645,7 @@ Bundesland zum Einordnen hat. Zeile 3s Text zugleich präzisiert: "Adresse
 nicht auffindbar — Schreibweise prüfen" unterstellte einen Fehler des
 Interessenten, den die Untersuchung in genau diesem Fall widerlegt hat.
 
-Zeile 10 (`plz_abweichend`) [bei Implementierung ergänzt, 2026-08-18, Fund
+Zeile 10 (`plz_abweichend`) [bei Implementierung ergänzt, Fund
 s. docs/FUNDE.md]: `countrycodes=de` wurde aus der Nominatim-Abfrage
 entfernt (die Ländereinschränkung gehört in `SERVICE_AREA_STATES`/
 `in_service_area`, nicht in die Suchanfrage - sonst kann Zeile 2 nie
@@ -707,7 +707,7 @@ Der einzige echte Beweis ist die Zustellung selbst: `email_status='gesendet'` he
 angenommen, `fehlgeschlagen` heißt Problem. Bounces würde Brevo per Webhook melden —
 nicht gebaut, Notizen-Punkt.
 
-**Umgesetzt [2026-08-19]:** `app/email_check.py::check_email_mx()`, Timeout 2s
+**Umgesetzt:** `app/email_check.py::check_email_mx()`, Timeout 2s
 statt der optimistischen ~100ms oben (real gemessen: 30-900ms je nach Domain).
 Bestätigt nicht zustellbare Domains (NXDOMAIN, kein MX/A/AAAA) lehnen den
 Submit mit 422 ab; ist der DNS-Dienst selbst nicht erreichbar (Timeout, kein
@@ -744,7 +744,7 @@ alter table leads add column traffic_light_reason text;
 -- status-check erweitern um 'ausland'
 ```
 
-`expansion_opt_in` seit 2026-08-19 umbenannt zu `marketing_opt_in`
+`expansion_opt_in` umbenannt zu `marketing_opt_in`
 (Migration `0014_marketing_opt_in.sql`, s. §A) - reiner Rename, keine
 Verhaltensänderung an dieser Stelle.
 
@@ -797,7 +797,7 @@ ab — es ist derselbe Submit-Endpunkt wie immer, F3 übernimmt.
   Buchungsbestätigungen. Ohne Vorbefüllung müsste er alles neu tippen — die
   Korrekturmöglichkeit wäre theoretisch.
 
-## H. Kanal-Ableitung beim Speichern [neu; bei Implementierung präzisiert, 2026-08-15]
+## H. Kanal-Ableitung beim Speichern [neu; bei Implementierung präzisiert]
 
 Statt die Herkunft erst in der Auswertung zusammenzurechnen, wird beim INSERT eine
 saubere Spalte abgeleitet:
@@ -837,7 +837,7 @@ gclid bestimmte Herkunft ist belastbar, eine per Selbstauskunft nicht — beides
 derselben Spalte zu mischen, ohne das kenntlich zu machen, wäre der klassische
 stille Fehler in Marketing-Reports.
 
-## I. Namens-Normalisierung [neu; Partikel-Regel korrigiert bei Implementierung, 2026-08-15]
+## I. Namens-Normalisierung [neu; Partikel-Regel korrigiert bei Implementierung]
 
 Aus `TOM AHRENS` oder `tom ahrens` wird `Tom Ahrens`. Konservativ, mit Rohwert.
 
@@ -888,7 +888,7 @@ sichtbar bleibt und manuell freigegeben werden kann. Keine Bestätigungsmail
 (Bots antworten nicht, und die Brevo-Freigrenze von 300 Mails/Tag soll nicht von
 ihnen verbraucht werden).
 
-**Ehrlich in den Notizen:** In den sechs Stunden Testbetrieb wird kein echter Spam
+**Ehrlich in den Notizen:** Im bisherigen Testbetrieb wird kein echter Spam
 auflaufen, weil die URL nirgends verlinkt ist. Die Maßnahmen sind vorbeugend gebaut
 und mit selbst erzeugten Fällen getestet, nicht im Feld erprobt.
 
@@ -926,9 +926,9 @@ create index on leads (process_after) where geocode_status = 'offen';
 
 ---
 
-# Ergänzung v6 (Infrastruktur-Fund, 19.08.)
+# Ergänzung v6 (Infrastruktur-Fund)
 
-## N. Row Level Security (RLS) [neu, 2026-08-19, Fund s. docs/FUNDE.md]
+## N. Row Level Security (RLS) [neu, Fund s. docs/FUNDE.md]
 
 **Auslöser:** Supabase-Sicherheitswarnung, nicht Teil einer Review-Runde. Ohne
 RLS sind alle drei Tabellen (`leads`, `lead_events`, `usage_counters`) über die
