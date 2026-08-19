@@ -61,7 +61,7 @@ def test_f2_identischer_content_hash():
     assert decision.matched_lead_id == candidate.id
 
 
-def test_f3_adresse_matcht_person_matcht_nicht():
+def test_f5_adresse_matcht_person_matcht_nicht():
     candidate = _candidate(
         content_hash="hash-alt",
         email_normalized="andere@example.com",
@@ -79,7 +79,29 @@ def test_f3_adresse_matcht_person_matcht_nicht():
             candidate=candidate,
         )
     )
-    assert decision.case == DedupCase.F3_ERSETZT
+    assert decision.case == DedupCase.F5_GRUNDSTUECK_BEKANNT
+    assert decision.matched_lead_id == candidate.id
+
+
+def test_f5_matcht_ueber_telefon_der_adresse_person_bleibt_getrennt():
+    candidate = _candidate(
+        content_hash="hash-alt",
+        email_normalized="andere@example.com",
+        phone_e164="+4940999999",
+        street="Musterstraße 12",
+        city="Hamburg",
+    )
+    decision = dedup_decision(
+        **_base_new(
+            new_content_hash="hash-neu",
+            new_email_normalized="jemand-anderes@example.com",
+            new_phone_e164="+4940111111",
+            new_street="Musterstraße 12",
+            new_city="Hamburg",
+            candidate=candidate,
+        )
+    )
+    assert decision.case == DedupCase.F5_GRUNDSTUECK_BEKANNT
     assert decision.matched_lead_id == candidate.id
 
 

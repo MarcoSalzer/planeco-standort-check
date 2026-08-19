@@ -58,7 +58,6 @@ Anzeige (Meta/Google) → Link MIT utm_*/gclid/fbclid → Landingpage/Formular
         │
         ▼
 [/admin/retry]  arbeitet email_status/geocode_status ∈ {pending,failed} ab
-                + Dedup-Nachlauf 24h (Race-Absicherung)
                 Trigger: Dashboard-Button + GitHub-Actions-Cron 15 min
                 (hält zugleich Supabase Free Tier aktiv)
         │
@@ -288,16 +287,27 @@ Optionen `heard_about`: Google-Suche / Google-Anzeige / Facebook oder Instagram 
 Empfehlung / Sonstiges. (Trennung Suche vs. Anzeige, weil sie in der Auswertung
 gegen gclid geprüft werden kann.)
 
-## 4. Duplikat- & Korrektur-Semantik [v3]
+## 4. Duplikat- & Korrektur-Semantik [v3, F3/F5-Abgrenzung korrigiert]
 
-Statuswerte auf Deutsch (s. K8). Vier Fälle:
+Statuswerte auf Deutsch (s. K8). Fünf Fälle:
 
 | Fall | Auslöser (konkret) | Verhalten | Mail? |
 |---|---|---|---|
 | **F1** Technische Dopplung | Nutzer klickt "Absenden" zweimal in Folge, oder drückt auf der Ergebnisseite F5/Reload → Browser schickt **dasselbe Formular ein zweites Mal**. Erkennbar am identischen `submission_token`. | Zweiter Request erzeugt keinen neuen Datensatz (unique constraint), Nutzer sieht dieselbe Danke-Seite. | **nein** — es war ein Absendevorgang, die Mail lief bereits |
 | **F2** Erneute Anfrage, identischer Inhalt | Nutzer ruft das Formular neu auf und füllt es identisch aus (neuer Token, gleicher `content_hash`). | Neuer Datensatz `status='duplikat'`, `duplicate_of` → Original. Original bekommt Event `erneut_angefragt` + Dashboard-Badge. | **ja** |
-| **F3** Korrektur / Ergänzung | Neuer Token, Person **oder** Grundstück matchen, Inhalt weicht ab (auch: mehr oder weniger Felder ausgefüllt). | **Feld-Merge, s. u.** Neuer Datensatz wird führend und erbt Bearbeitungsstand; Vorgänger `status='ersetzt'`, `superseded_by` → neu, bleibt vollständig erhalten (ausgegraut). Event `ersetzt` mit Feld-Diff alt→neu. | **ja** |
-| **F4** Gleiche Person, anderes Grundstück | Person matcht, Adresse nicht. | Eigenständiger Lead, Badge "Kontakt bekannt". | **ja** |
+| **F3** Korrektur / Ergänzung | Neuer Token, Person **UND** Grundstück matchen, Inhalt weicht ab (auch: mehr oder weniger Felder ausgefüllt). | **Feld-Merge, s. u.** Neuer Datensatz wird führend und erbt Bearbeitungsstand; Vorgänger `status='ersetzt'`, `superseded_by` → neu, bleibt vollständig erhalten (ausgegraut). Event `ersetzt` mit Feld-Diff alt→neu. | **ja** |
+| **F4** Gleiche Person, anderes Grundstück | Person matcht, Adresse nicht. | Eigenständiger Lead, eigene Lead-Nummer, kein Merge. Badge "Kontakt bekannt". | **ja** |
+| **F5** Gleiches Grundstück, andere Person | Adresse matcht, Person nicht. | Eigenständiger Lead, eigene Lead-Nummer, kein Merge, kein Erben von `status`/`assigned_to`/`contacted_at`, keine `superseded_by`-Verkettung. Badge "Grundstück bereits angefragt" mit Verweis auf die andere Anfrage. | **ja** |
+
+**Korrektur gegenüber der ursprünglichen Umsetzung:** F3 verlangte anfangs Adresse
+allein, weil die Prüfreihenfolge im Code die Adresse vor der Person testete und bei
+einem Treffer sofort zurückgab. Damit hätten zwei verschiedene Personen, die
+dasselbe Grundstück anfragen, wie eine Korrektur desselben Vorgangs gewirkt: die
+zweite Person hätte automatisch `status`/`assigned_to`/`contacted_at` der ersten
+geerbt, und der Datensatz der ersten wäre `status='ersetzt'` geworden, obwohl er
+inhaltlich weiterhin gilt. Behoben durch F5 als eigenen Fall: Adresse ohne
+Personen-Match ist jetzt ein eigenständiger neuer Vorgang mit Verweis auf die
+verwandte Anfrage, keine Verkettung. F3 verlangt seitdem beides.
 
 ### Feld-Merge-Regel bei F3 [v3 — löst "der vollständigere gewinnt"]
 
@@ -323,6 +333,9 @@ Der Vorgängerdatensatz wird **nie verändert und nie gelöscht**, nur umetikett
 - Person: `phone_e164` gleich **ODER** `email_normalized` gleich
 - Grundstück: `street` + `city` gleich nach Normalisierung (lower, trim, collapse)
 - Inhalt: `content_hash` über alle normalisierten Inhaltsfelder
+- Reihenfolge der Prüfung (erste zutreffende Regel gewinnt, s.
+  `app/core/dedup.py`): F1 (Token-Replay) → F2 (`content_hash` identisch) →
+  F3 (Person **und** Grundstück) → F4 (nur Person) → F5 (nur Grundstück) → NEU.
 
 ### Korrektur-Flow ohne Edit-Link
 

@@ -264,6 +264,44 @@ zurückgemeldet, alle bearbeitet:
    weiterer Bauauftrag erwartet, nur noch Abnahme-Reste (Checkliste unten)
    und Notizen/Abgabe.
 
+### ✅ Duplikat-Erkennung: F3 verlangte fälschlich nur die Adresse
+
+`app/core/dedup.py::dedup_decision()` prüfte die Adresse vor der Person und
+gab bei einem Adresstreffer sofort F3 zurück, ohne die Person überhaupt noch
+zu prüfen - Konzept §4 sieht für F3 aber Person UND Grundstück vor. Zwei
+verschiedene Personen, die dasselbe Grundstück anfragen, wurden dadurch wie
+eine Korrektur desselben Vorgangs behandelt: die zweite Person erbte
+automatisch `status`/`assigned_to`/`contacted_at` der ersten, und der
+Datensatz der ersten Person wurde `status='ersetzt'`, obwohl er inhaltlich
+weiterhin galt.
+
+Behoben durch einen neuen fünften Fall statt einer Sonderbehandlung: **F5,
+"Grundstück bekannt"** - Adresse matcht, Person nicht → eigenständiger
+neuer Lead mit eigener Lead-Nummer, kein Merge, kein Erben von
+Bearbeitungsstand, keine `superseded_by`-Verkettung, nur ein Dashboard-Badge
+"Grundstück bereits angefragt" mit Verweis auf die andere Anfrage. F3
+verlangt seitdem beides (Person UND Adresse), symmetrisch zu F4 (nur
+Person). Konzept §4 nachgezogen (Tabelle, Match-Kriterien, Prüfreihenfolge).
+
+**Demo-Daten geprüft, nichts betroffen:** Beide bestehenden
+`superseded_by`-Ketten (Lead-Nummer 4, drei Versionen; Lead-Nummer 8, zwei
+Versionen) haben in jedem Schritt sowohl identische Adresse als auch
+identische E-Mail - beide bleiben unter der neuen, strengeren Regel
+korrekt F3. Kein Fall von zwei verschiedenen Personen an derselben Adresse
+existiert aktuell in den Demo-Daten; nichts musste nachträglich korrigiert
+werden.
+
+**Bewusste Grenze, nicht geändert:** Es gibt kein Zeitfenster für F3 - eine
+Korrektur von vor zehn Minuten und eine erneute Anfrage derselben Person
+nach sechs Monaten werden identisch behandelt (Merge + geerbter
+Bearbeitungsstand). Das ist fachlich fraglich: nach längerer Zeit ist eine
+erneute Anfrage eher eine neue Gelegenheit als eine Korrektur desselben
+Vorgangs (ein möglicherweise längst abgeschlossener Sales-Vorgang würde
+durch die Korrektur wieder geöffnet, mit veraltetem `assigned_to`). Bewusst
+nicht gebaut (würde eine weitere Zeitschwelle plus deren Begründung
+verlangen, ohne im Rahmen dieses Case belastbar bestimmbar zu sein) - als
+offener Punkt für NOTES.md/Livegang vermerkt.
+
 ### Sonstiges, noch offen (kein Bauauftrag, nur Erinnerung)
 
 - **F2-Mailtext gegengelesen:** `app/mail.py`,

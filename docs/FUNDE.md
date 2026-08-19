@@ -615,3 +615,52 @@ verwalteten Infrastruktur-Ebene (Supabase-Plattform) - dieselbe
 Anwendung war die ganze Zeit korrekt, während parallel dazu ein zweiter,
 von der Anwendung nie genutzter Zugriffsweg offen stand, den eine reine
 Anwendungscode-Durchsicht nicht zeigen kann.
+
+## F3 verlangte fälschlich nur die Adresse statt Person und Adresse (`app/core/dedup.py`)
+
+Konzept §4 sieht für F3 (Korrektur) von Anfang an Person **und** Grundstück
+vor. Die Implementierung prüfte die beiden Kriterien aber nicht gemeinsam,
+sondern nacheinander in einer Reihenfolge, die das Konzept selbst
+unterlief: `dedup_decision()` testete die Adresse zuerst und gab bei einem
+Treffer sofort F3 zurück - die Personenprüfung (Telefon/E-Mail) wurde dann
+gar nicht mehr erreicht. Eine Adressübereinstimmung allein reichte damit
+aus, unabhängig davon, ob Name, Telefon und E-Mail komplett anders waren.
+
+**Konkrete Folge:** Fragen zwei verschiedene Personen dasselbe Grundstück
+an (zwei tatsächliche Interessenten für dieselbe Immobilie - kein
+Kuriosum, sondern ein plausibler Alltagsfall für ein Standort-Check-
+Formular), behandelte das System die zweite Anfrage wie eine Korrektur der
+ersten: der neue Datensatz erbte automatisch `status`/`assigned_to`/
+`contacted_at` der ersten Person, und der Datensatz der ersten Person
+wurde `status='ersetzt'` - obwohl er inhaltlich weiterhin galt und zu einer
+komplett anderen Person gehörte. Ein bereits kontaktierter oder
+qualifizierter erster Interessent wäre dadurch aus der aktiven Sales-Liste
+verschwunden, während die zweite, fremde Person unter seinem
+Bearbeitungsstand auftauchte - ein stiller, folgenreicher Fehler in genau
+der Kategorie, die dieses Dokument sammelt: kein Absturz, sondern ein
+scheinbar plausibles, aber falsches Ergebnis.
+
+Aufgefallen nicht beim Bauen, sondern bei einer gezielten Nachfrage: "Was
+passiert, wenn zwei verschiedene Personen dasselbe Grundstück anfragen?" -
+eine Frage, die sich beim Schreiben des Codes nicht gestellt hatte, weil
+die Beispieldaten und Testfälle bislang ausschließlich denselben
+Interessenten korrigieren oder erneut anfragen ließen, nie zwei
+verschiedene Personen an derselben Adresse.
+
+**Behoben durch einen eigenen fünften Fall statt einer Sonderbehandlung
+innerhalb von F3:** F5 "Grundstück bekannt" - Adresse matcht, Person
+nicht → eigenständiger neuer Lead mit eigener Lead-Nummer, kein Merge,
+kein Erben von Bearbeitungsstand, keine `superseded_by`-Verkettung, nur
+ein Dashboard-Badge mit Verweis auf die andere Anfrage (symmetrisch zu F4,
+"Kontakt bekannt": dort matcht die Person, aber nicht die Adresse). F3
+verlangt seitdem beide Kriterien gemeinsam, nicht mehr in einer
+Reihenfolge, die eines der beiden faktisch überspringen konnte.
+
+Bestehende Demo-Daten read-only geprüft, bevor der Fix als unbedenklich
+galt: beide vorhandenen `superseded_by`-Ketten hatten in jedem Schritt
+sowohl identische Adresse als auch identische Person (E-Mail) - beide
+bleiben unter der strengeren Regel korrekt F3. Kein Fall von zwei
+verschiedenen Personen an derselben Adresse existierte in den Demo-Daten;
+nichts musste nachträglich korrigiert werden. Das ändert nichts daran,
+dass der Fehler in echtem Betrieb - mit echten, unabhängigen Interessenten
+- aufgetreten wäre.

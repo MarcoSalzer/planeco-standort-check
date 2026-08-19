@@ -1,15 +1,25 @@
-"""dedup_decision: Duplikat-/Korrektur-Entscheidung F1-F4 (Konzept §4).
+"""dedup_decision: Duplikat-/Korrektur-Entscheidung F1-F5 (Konzept §4).
 
 Reine Entscheidungslogik. Die eigentliche Suche nach einem passenden
 Bestandslead (per phone_e164/email_normalized/Adresse) läuft als
 DB-Abfrage außerhalb dieser Funktion; hier kommt nur das Ergebnis
 ("candidate") rein. F1 (identischer submission_token) wird ebenfalls
 extern per DB-Unique-Constraint geprüft und als Flag hereingereicht,
-damit alle vier Fälle in einer einzigen, testbaren Funktion landen.
+damit alle fünf Fälle in einer einzigen, testbaren Funktion landen.
 
 Reihenfolge, erste zutreffende Regel gewinnt:
-F1 (Token-Replay) > F2 (identischer Inhalt) > F3 (Adresse matcht,
-Inhalt weicht ab) > F4 (nur Person matcht) > NEU.
+F1 (Token-Replay) > F2 (identischer Inhalt) > F3 (Person UND Adresse
+matchen) > F4 (nur Person matcht) > F5 (nur Adresse matcht) > NEU.
+
+F3 verlangt Person UND Adresse, nicht Adresse allein (Konzept §4 sah das
+von Anfang an so vor - die frühere Implementierung prüfte die Adresse
+zuerst und gab F3 zurück, ohne die Person überhaupt noch zu prüfen).
+Grund für die Korrektur: Zwei verschiedene Personen, die dasselbe
+Grundstück anfragen, sind keine Korrektur desselben Vorgangs. Adresse
+allein reicht nicht, um das anzunehmen - sonst würde die zweite Person
+den Bearbeitungsstand (status/assigned_to/contacted_at) der ersten erben
+und der Datensatz der ersten Person würde als "ersetzt" markiert, obwohl
+er inhaltlich weiterhin stimmt.
 """
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +34,7 @@ class DedupCase(str, Enum):
     F2_DUPLIKAT = "f2_duplikat"
     F3_ERSETZT = "f3_ersetzt"
     F4_KONTAKT_BEKANNT = "f4_kontakt_bekannt"
+    F5_GRUNDSTUECK_BEKANNT = "f5_grundstueck_bekannt"
 
 
 @dataclass(frozen=True)
@@ -78,14 +89,16 @@ def dedup_decision(
     address_matches = canonical_text(candidate.street) == canonical_text(
         new_street
     ) and canonical_text(candidate.city) == canonical_text(new_city)
-    if address_matches:
-        return DedupDecision(case=DedupCase.F3_ERSETZT, matched_lead_id=candidate.id)
-
     person_matches = candidate.email_normalized == new_email_normalized or (
         new_phone_e164 is not None and candidate.phone_e164 == new_phone_e164
     )
+
+    if address_matches and person_matches:
+        return DedupDecision(case=DedupCase.F3_ERSETZT, matched_lead_id=candidate.id)
     if person_matches:
         return DedupDecision(case=DedupCase.F4_KONTAKT_BEKANNT, matched_lead_id=candidate.id)
+    if address_matches:
+        return DedupDecision(case=DedupCase.F5_GRUNDSTUECK_BEKANNT, matched_lead_id=candidate.id)
 
     raise ValueError(
         "dedup_decision: candidate ohne Person- oder Grundstück-Match übergeben "

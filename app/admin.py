@@ -488,6 +488,11 @@ def _fetch_leads(
                     WHERE e.lead_id = l.id AND e.event_type = 'kontakt_bekannt'
                 ) AS kontakt_bekannt,
                 (
+                    SELECT e.payload->>'bekannter_lead_id' FROM lead_events e
+                    WHERE e.lead_id = l.id AND e.event_type = 'grundstueck_bekannt'
+                    LIMIT 1
+                ) AS grundstueck_bekannt_lead_id,
+                (
                     SELECT max(e.created_at) FROM lead_events e
                     WHERE e.lead_id = l.id AND e.event_type = 'erneut_angefragt'
                 ) AS erneut_angefragt_am
@@ -629,6 +634,14 @@ def _decorate_row(row: dict, vorgang_position: tuple[int, int] | None) -> dict:
         })
     if row["kontakt_bekannt"]:
         badges.append({"text": "Kontakt bekannt", "url": None})
+    if row["grundstueck_bekannt_lead_id"]:
+        # F5 (app/core/dedup.py): Adresse matcht einen Bestandslead, die
+        # Person nicht - kein Merge, kein Erben von status/assigned_to,
+        # nur dieser Hinweis mit Verweis auf die andere Anfrage.
+        badges.append({
+            "text": "Grundstück bereits angefragt",
+            "url": f"/admin/leads/{row['grundstueck_bekannt_lead_id']}",
+        })
     if row["phone_raw"] and not row["phone_valid"]:
         badges.append({"text": "Telefon prüfen", "url": None})
     if row["geocode_status"] == "mehrdeutig":

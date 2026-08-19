@@ -180,6 +180,24 @@ def persist_submission(
         _insert_event(conn, new_id, "kontakt_bekannt", {"bekannter_lead_id": candidate.id})
         return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
 
+    if decision.case == DedupCase.F5_GRUNDSTUECK_BEKANNT:
+        # F5 = dasselbe Grundstück, aber eine ANDERE Person (kein Telefon-
+        # /E-Mail-Match) -> keine Korrektur desselben Vorgangs, sondern ein
+        # eigenständiger neuer Vorgang mit eigener Lead-Nummer. Kein Merge,
+        # kein Erben von status/assigned_to/contacted_at, keine
+        # superseded_by-Verkettung - der Kandidat bleibt vollständig
+        # unangetastet. Symmetrisch zu F4 (bekannte Person, anderes
+        # Grundstück): dort verrät nur ein Event den bekannten Zusammenhang,
+        # hier ebenso.
+        new_id = _insert_lead(
+            conn, data, duplicate_of=None, status="neu", assigned_to=None, contacted_at=None,
+            lead_nummer=_next_lead_nummer(conn),
+        )
+        _insert_event(conn, new_id, "erstellt", {"quelle": "formular"})
+        _log_unexpected_fields(conn, new_id, unexpected_fields)
+        _insert_event(conn, new_id, "grundstueck_bekannt", {"bekannter_lead_id": candidate.id})
+        return SubmissionResult(lead_id=new_id, case=decision.case, final_data=data)
+
     raise ValueError(f"Unbekannter DedupCase: {decision.case}")  # pragma: no cover
 
 

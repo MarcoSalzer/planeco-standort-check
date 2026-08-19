@@ -94,6 +94,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "erneut_angefragt": "Erneut angefragt",
     "ersetzt": "Durch Korrektur ersetzt",
     "kontakt_bekannt": "Kontakt bereits bekannt",
+    "grundstueck_bekannt": "Grundstück bereits angefragt",
     "unerwarteter_feldwert": "Unerwarteter Feldwert (als „keine Angabe“ gespeichert)",
     "notiz_hinzugefuegt": "Notiz hinzugefügt",
 }
