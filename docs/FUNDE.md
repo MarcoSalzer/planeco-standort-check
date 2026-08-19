@@ -583,3 +583,40 @@ Lindenweg/Neustadt wieder `mehrdeutig` (3 Kandidaten), Groß Grönau
 weiterhin `nur_ort`, Hamburg mit falscher PLZ weiterhin `plz_abweichend`,
 Wien weiterhin `ausland` - keiner der übrigen Fälle hat sich durch die
 Lockerung verschlechtert.
+
+## Row Level Security fehlte auf allen drei Tabellen (Supabase, `leads`/`lead_events`/`usage_counters`)
+
+Supabase schickte eine automatische Sicherheitswarnung: Ohne Row Level
+Security (RLS) sind Tabellen über die projekteigene REST-Schnittstelle
+(PostgREST) lesbar und schreibbar - der dafür nötige `anon`-Schlüssel ist
+aber ausdrücklich als öffentlicher Schlüssel gedacht (in einem
+clientseitigen Supabase-Setup steht er üblicherweise sichtbar im
+Frontend-Code). Diese Anwendung nutzt PostgREST nirgends - die
+Verbindung läuft ausschließlich über den Transaction Pooler mit
+`psycopg`/`DATABASE_URL` (CLAUDE.md, Supabase-Besonderheiten) - aber der
+REST-Endpunkt existiert trotzdem automatisch als Teil jedes
+Supabase-Projekts, unabhängig davon, ob die eigene Anwendung ihn
+verwendet. Ohne RLS hätte jeder mit dem öffentlichen `anon`-Key die
+komplette `leads`-Tabelle lesen und schreiben können - über einen
+Zugriffsweg, der in keinem Anwendungscode vorkommt und deshalb bei einer
+reinen Code-Durchsicht nie aufgefallen wäre.
+
+Von Marco behoben: RLS auf allen drei Tabellen eingeschaltet. Verifiziert
+gegen die echte Datenbank (read-only, `pg_class`/`pg_roles`/`pg_policies`):
+`relrowsecurity=true` für `leads`, `lead_events`, `usage_counters`; die
+Anwendung verbindet als Rolle `postgres` mit `rolbypassrls=true` - Owner-
+Rollen umgehen RLS grundsätzlich, unabhängig von Policies, deshalb läuft
+die Anwendung unverändert weiter. Es existiert aktuell keine einzige
+RLS-Policy auf den drei Tabellen - in Kombination mit aktiviertem RLS
+heißt das: jede Rolle, die (anders als `postgres`) RLS tatsächlich
+unterliegt, wie die von PostgREST verwendeten `anon`/`authenticated`-
+Rollen, wird jetzt vollständig abgewiesen, nicht nur eingeschränkt.
+
+Muster: Eine Absicherung, die für den gewählten, tatsächlich genutzten
+Zugriffsweg irrelevant aussieht, ist es für einen zweiten, unbeabsichtigt
+offen gebliebenen Weg nicht (Marco). Anders als die übrigen Funde in
+diesem Dokument liegt die Lücke hier nicht im Anwendungscode, sondern auf
+der verwaltete Infrastruktur-Ebene (Supabase-Plattform) - dieselbe
+Anwendung war die ganze Zeit korrekt, während parallel dazu ein zweiter,
+von der Anwendung nie genutzter Zugriffsweg offen stand, den eine reine
+Anwendungscode-Durchsicht nicht zeigen kann.

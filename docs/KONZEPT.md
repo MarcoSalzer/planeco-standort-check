@@ -915,3 +915,31 @@ alter table leads add column channel_source text;
 -- geocode_status-check um 'entfaellt' erweitern
 create index on leads (process_after) where geocode_status = 'offen';
 ```
+
+---
+
+# Ergänzung v6 (Infrastruktur-Fund, 19.08.)
+
+## N. Row Level Security (RLS) [neu, 2026-08-19, Fund s. docs/FUNDE.md]
+
+**Auslöser:** Supabase-Sicherheitswarnung, nicht Teil einer Review-Runde. Ohne
+RLS sind alle drei Tabellen (`leads`, `lead_events`, `usage_counters`) über die
+projekteigene REST-Schnittstelle (PostgREST) lesbar und schreibbar - der dafür
+nötige `anon`-Schlüssel ist als öffentlicher Schlüssel gedacht. Diese Anwendung
+nutzt PostgREST nirgends (Verbindung ausschließlich über den Transaction
+Pooler mit `psycopg`/`DATABASE_URL`), aber der REST-Endpunkt existiert
+automatisch als Teil jedes Supabase-Projekts, unabhängig davon, ob die eigene
+Anwendung ihn verwendet.
+
+**Umsetzung:** RLS auf allen drei Tabellen eingeschaltet, keine Policies
+angelegt. Die Anwendung verbindet als Tabellen-Eigentümer (Rolle `postgres`,
+`rolbypassrls=true`) und umgeht RLS damit grundsätzlich - läuft unverändert
+weiter, ohne Code-Änderung. Verifiziert gegen die echte Datenbank
+(`pg_class.relrowsecurity`, `pg_roles.rolbypassrls`, `pg_policies`).
+
+**Urteilsvermögen-Punkt für die Notizen:** Eine Absicherung, die für den
+gewählten, tatsächlich genutzten Zugriffsweg irrelevant aussieht, ist es für
+einen zweiten, unbeabsichtigt offen gebliebenen Weg nicht. Die Lücke lag nicht
+im Anwendungscode, sondern auf der verwalteten Infrastruktur-Ebene - eine reine
+Code-Durchsicht hätte sie nie gezeigt, weil der betroffene Zugriffsweg im Code
+schlicht nicht vorkommt.
