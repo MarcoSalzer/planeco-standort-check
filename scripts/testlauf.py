@@ -617,7 +617,7 @@ def _name_case(raw: str):
 
 
 def test_namen():
-    for raw in ["TOM AHRENS", "müller-lüdenscheidt", "van der berg", "McDonald", "O'Brien", "di Marco"]:
+    for raw in ["TOM AHRENS", "müller-lüdenscheidt", "van der berg", "McDonald", "O'Brien", "de Vries"]:
         _name_case(raw)
 
 

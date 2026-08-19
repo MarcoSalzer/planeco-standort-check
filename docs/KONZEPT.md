@@ -844,7 +844,7 @@ Aus `TOM AHRENS` oder `tom ahrens` wird `Tom Ahrens`. Konservativ, mit Rohwert.
 **Regel — normalisiert wird NUR, wenn der String komplett groß oder komplett klein
 geschrieben ist UND keinen Namenspartikel enthält.** Gemischte Schreibweisen
 bleiben unangetastet, weil dort echte Namensformen stecken: `McDonald`, `O'Brien`,
-`di Marco`, `van der Berg`.
+`de Vries`, `van der Berg`.
 
 **Namen mit Namenspartikel werden grundsätzlich nicht normalisiert**, auch nicht
 bei durchgängig Groß- oder Kleinschreibung: `von, van, de, del, di, da, der, den,

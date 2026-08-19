@@ -51,7 +51,7 @@ def normalize_name(raw: str | None) -> tuple[str | None, bool]:
     """Titelcase nur bei durchgängig GROSS oder klein geschriebenem Namen
     OHNE Namenspartikel.
 
-    Gemischte Schreibweisen (McDonald, O'Brien, di Marco) bleiben
+    Gemischte Schreibweisen (McDonald, O'Brien, de Vries) bleiben
     unangetastet, weil dort echte Namensformen stecken (Konzept §I).
     Namen mit Partikel (von, van, de, ...) werden nie normalisiert: ob ein
     Partikel am Satzanfang groß oder klein gehört, hängt vom

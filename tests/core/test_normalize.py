@@ -69,7 +69,7 @@ def test_normalize_email(raw, expected):
         ("o'brien", "O'Brien", True),
         ("McDonald", "McDonald", False),
         ("O'Brien", "O'Brien", False),
-        ("di Marco", "di Marco", False),
+        ("de Vries", "de Vries", False),
     ],
 )
 def test_normalize_name(raw, expected_name, expected_normalized):

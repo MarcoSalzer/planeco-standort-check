@@ -190,11 +190,11 @@ Wo Erwartung und tatsächliches Verhalten auseinanderfallen, wurde NICHTS repari
 
 **Tatsächlich:** HTTP 303; name="O'Brien", name_normalized=False, name_raw="O'Brien"
 
-### ✅ di Marco
+### ✅ de Vries
 
-**Erwartet:** normalize_name('di Marco') == ('di Marco', False) - Formular soll dasselbe in der DB speichern, name_raw bleibt roh erhalten.
+**Erwartet:** normalize_name('de Vries') == ('de Vries', False) - Formular soll dasselbe in der DB speichern, name_raw bleibt roh erhalten.
 
-**Tatsächlich:** HTTP 303; name='di Marco', name_normalized=False, name_raw='di Marco'
+**Tatsächlich:** HTTP 303; name='de Vries', name_normalized=False, name_raw='de Vries'
 
 ## Lange Eingaben
 
