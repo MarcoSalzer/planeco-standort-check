@@ -720,3 +720,47 @@ A's eigene erste Anfrage (erbt `status='kontaktiert'`,
 `assigned_to='anna'`, dieselbe Lead-Nummer), B bleibt vollständig
 unberührt - unabhängig davon, dass B zeitlich zwischen A's beiden
 Anfragen lag.
+
+## Neu befülltes Feld verschwand spurlos aus dem Änderungsprotokoll (`app/core/merge.py::merge_fields`)
+
+Beim Nachvollziehen einer echten Korrekturkette (drei Versionen derselben
+Anfrage, entstanden beim Eintippen der Aufgabenbeispiele) fiel ein leerer
+Feld-Diff auf, obwohl sich der gespeicherte Inhalt zwischen den beiden
+Versionen nachweislich unterschied: eine Anmerkung, die in der Vorversion
+leer war, stand in der neuen Version mit echtem Text - das Event `ersetzt`
+zeigte trotzdem `changed_fields: {}` und `merged_fields: {}`, als wäre
+nichts als das erneute Absenden selbst passiert.
+
+Ursache in `merge_fields()`: `changed_fields` wurde nur befüllt, wenn
+BEIDE Werte - der alte UND der neue - bereits gefüllt waren
+(`_is_filled(old_value) and old_value != new_value`). `merged_fields`
+wiederum verlangt einen leeren NEUEN Wert (die Lücke-füllen-Regel). Ein
+Feld, das vorher leer war und jetzt zum ersten Mal befüllt wird, erfüllt
+keine der beiden Bedingungen und fiel dadurch komplett durch das
+Protokoll - der Wert selbst wurde korrekt gespeichert (`values[key] =
+new_value` lief unverändert), nur die Tatsache, dass sich hier etwas
+geändert hat, verschwand aus der Nachvollziehbarkeit. Genau der häufige
+Fall "Interessent ergänzt beim zweiten Anlauf eine Anmerkung, die vorher
+fehlte" wäre für Sales in der Event-Historie unsichtbar gewesen.
+
+Bemerkenswert: der bestehende Pflichttest für `merge_fields()`
+dokumentierte diese Lücke bereits, ohne dass es auffiel -
+`test_mehrere_felder_unabhaengig_voneinander` prüfte einen Fall mit
+`postal_code: None → "20095"` und erwartete explizit, dass `postal_code`
+NICHT in `changed_fields` auftaucht. Der Test war grün, weil er das
+damalige (falsche) Verhalten korrekt abbildete - ein Test kann eine Lücke
+nur zeigen, wenn die Erwartung selbst hinterfragt wird, nicht nur, ob der
+Code zur Erwartung passt. Derselbe Fehlertyp wie beim veralteten
+`heard_about`-Test weiter oben in diesem Dokument.
+
+Behoben durch eine einzige Bedingung weniger, nicht durch eine neue
+Diff-Kategorie: `changed_fields` erfasst jetzt jeden Fall, in dem sich der
+gespeicherte Wert ändert (`old_value != new_value`), unabhängig davon, ob
+der alte Wert gefüllt war. Ein neu befülltes Feld erscheint dadurch mit
+`alt=None`, was die bestehende Anzeige (`_text()` in `app/admin.py`)
+bereits korrekt als "–" darstellt - keine Template-Änderung nötig. Der
+bestehende Test wurde auf das jetzt korrekte Verhalten korrigiert, zwei
+neue Tests decken den Fall gezielt ab (leeres Feld als `None` und als
+Whitespace-String). Live gegen die echte Datenbank verifiziert: eine neu
+ergänzte Anmerkung erscheint jetzt korrekt als `changed_fields:
+{"message": {"alt": None, "neu": "..."}}` statt spurlos zu verschwinden.

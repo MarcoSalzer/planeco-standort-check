@@ -58,4 +58,27 @@ def test_mehrere_felder_unabhaengig_voneinander():
         "postal_code": "20095",
     }
     assert result.merged_fields == {"name": "Tom Ahrens"}
-    assert result.changed_fields == {"message": {"alt": "Altes Anliegen", "neu": "Neues Anliegen"}}
+    assert result.changed_fields == {
+        "message": {"alt": "Altes Anliegen", "neu": "Neues Anliegen"},
+        "postal_code": {"alt": None, "neu": "20095"},
+    }
+
+
+def test_vorher_leeres_feld_wird_jetzt_befuellt_erscheint_im_diff():
+    """Fund, s. docs/FUNDE.md: ein Feld, das vorher leer war (None) und jetzt
+    zum ersten Mal befüllt wird, muss im Änderungsprotokoll auftauchen -
+    weder als "geändert" (verlangte fälschlich einen bereits gefüllten alten
+    Wert) noch als "übernommen" (verlangt einen leeren neuen Wert) erfasste
+    das vorher, die Information verschwand spurlos aus changed_fields UND
+    merged_fields."""
+    result = merge_fields(old={"message": None}, new={"message": "Neue Anmerkung"})
+    assert result.values["message"] == "Neue Anmerkung"
+    assert result.changed_fields == {"message": {"alt": None, "neu": "Neue Anmerkung"}}
+    assert result.merged_fields == {}
+
+
+def test_vorher_leeres_feld_als_whitespace_wird_jetzt_befuellt_erscheint_im_diff():
+    result = merge_fields(old={"message": "   "}, new={"message": "Neue Anmerkung"})
+    assert result.values["message"] == "Neue Anmerkung"
+    assert result.changed_fields == {"message": {"alt": "   ", "neu": "Neue Anmerkung"}}
+    assert result.merged_fields == {}
