@@ -326,13 +326,13 @@ offener Punkt für NOTES.md/Livegang vermerkt.
   passieren - genau dafür ergänzt der Tippfehler-Vorschlag die MX-Prüfung,
   statt sie zu duplizieren.
 
-## Phase 0 — Konzept fixieren (Chat) ✅ weitgehend
+## Phase 0 — Konzept fixieren (Chat) ✅
 - [x] Datenmodell + Pipeline + Risiken (KONZEPT v2)
 - [x] Review-Runde: Felder, Duplikat-Semantik, Mail-Regel, Konflikte K1-K6
 - [x] Review 2: Pflichtfelder, Ampel, Feld-Merge, Auswertungs-Tab, deutsche Statuswerte
 - [x] Review 3: Auslandspfad, Ampelregeln, Bundesland-Mapping, E-Mail-Prüfung, Mail-Ausnahmen
 - [x] Review 4: Korrekturfenster 1h, Kanal-Ableitung, Namens-Normalisierung, Spam-Muster, Kontakt im Footer
-- [ ] Nur noch offen: nichts. Konzept ist final.
+- [x] Nur noch offen: nichts. Konzept ist final.
 
 ## Phase 1 — Accounts & Skelett ✅
 - [x] Accounts nach SETUP.md Schritt 1: Brevo zuerst (Verifizierung!), dann Supabase, Vercel, GitHub
@@ -381,28 +381,28 @@ offener Punkt für NOTES.md/Livegang vermerkt.
 - [x] Bundesland→Landesbauordnung-Mapping (Konzept §C) bewusst gestrichen (kein Bauauftrag, keine externe Schnittstelle, s. oben).
 - [x] Geocoding-Untersuchung + Ortsebene-Rückfall + Auslandserkennung über country_code + PLZ-Abweichung: s. "Geocoding: aktueller technischer Stand" oben, ausführlich in docs/FUNDE.md.
 
-## Phase 5 — Abnahme
-- [ ] Fünf Beispielanfragen vom Handy (fiktive Mails, einmal mit ?utm_source=meta&utm_campaign=test)
-- [ ] #1/#4: F2 oder F3 korrekt? (identisch → duplicate; hier: gleiche Inhalte, andere Telefonschreibweise → Hash gleich nach Normalisierung → F2, Original führt, Badge)
-- [ ] #2: ambiguous, Kandidaten sichtbar, in_service_area null/grau — **Achtung, abweichend vom ursprünglichen Plan:** "Lindenweg 3, Neustadt" ohne PLZ ergibt jetzt bewusst nicht_gefunden statt mehrdeutig (s. oben) - dieser Prüfpunkt braucht ggf. eine andere Testadresse, wenn eine echte mehrdeutige Ampel gezeigt werden soll.
-- [ ] Ampel: Testadresse in Österreich → rot + Auslandsmail — **Achtung:** PLZ-Format-Validierung akzeptiert keine 4-stelligen (österreichischen) PLZ, s. offener Fund oben - PLZ ggf. weglassen.
-- [ ] Lead ohne Telefon -> gelb "Nur per E-Mail erreichbar"
-- [ ] Korrekturfenster: Lead absenden, innerhalb 1h korrigierten Antrag schicken -> nur der neue wird geokodiert, alter auf entfaellt
-- [ ] Korrektur-Link aus Mail oeffnen: Formular vorbefuellt, ein Feld aendern, absenden -> F3 greift
-- [ ] Namens-Normalisierung: TOM AHRENS -> Tom Ahrens, mcdonald bleibt bei gemischter Schreibweise unangetastet
-- [ ] Honeypot-Submit und Submit nach 1 Sekunde -> is_spam, keine Mail, im Spam-Filter sichtbar
-- [ ] Kanal-Ableitung: einmal mit gclid, einmal mit fbclid, einmal ohne Parameter -> channel und channel_source korrekt
-- [ ] F3-Test A: korrigierte Telefonnummer → neuer führt, alter ausgegraut, Diff im Event (lesbar in der Detailansicht, s. oben), Status vererbt
-- [ ] F3-Test B: zweiter Submit MIT weniger Feldern → Merge füllt Lücken aus altem Datensatz, nichts geht verloren
-- [ ] F4-Test: gleiche Person, zweites Grundstück → zwei aktive, Badge
-- [ ] Pflichtfeld-Reject (nur Adresse/E-Mail/Datenschutz): Eingaben bleiben stehen
-- [ ] Lead ohne Telefonnummer: Badge "nur E-Mail", Ampel gelb, Mail geht raus
-- [ ] Doppelklick, Reload auf POST, Honeypot, Brevo-Key falsch → failed → Retry heilt
-- [ ] Umlaute end-to-end inkl. Excel-Öffnung; Mail-Zusammenfassung stimmt; Handy-Check
-- [ ] Status/Zugewiesen per Inline-Bearbeitung in der Liste ändern (inkl. disqualifiziert mit Pflicht-Grund), Zeile verlässt den Filter sichtbar statt kommentarlos
+## Phase 5 — Abnahme ✅ weitgehend
+- [x] Fünf Beispielanfragen vom Handy (fiktive Mails, einmal mit ?utm_source=meta&utm_campaign=test)
+- [x] #1/#4: F2 oder F3 korrekt? **Tatsächliches Ergebnis weicht vom hier ursprünglich erwarteten ab:** Die Duplikat-/Korrektur-Testreihe (Ahrens, lead_nummer 4) lief live über drei echte Submits statt einer einfachen Zwei-Wege-Dopplung - live gegen die Datenbank geprüft. Schritt 1→2 änderte tatsächlich `phone_raw` UND `heard_about`, Schritt 2→3 zusätzlich noch etwas, das den content_hash veränderte, obwohl der Feld-Diff dafür leer aussieht - beide Schritte liefen deshalb als **F3** (Korrektur, dreistufige `superseded_by`-Kette), nicht als F2, wie die ursprüngliche Erwartung hier annahm. Ergebnis inhaltlich korrekt (Diff sichtbar, Vorgänger ausgegraut, Nummer vererbt), nur die Klassifikation F2 traf nicht zu - in den aktuellen Demo-Daten existiert aktuell **kein** F2-Fall (`status='duplikat'` kommt in keiner der zehn Zeilen vor).
+- [x] #2: ambiguous, Kandidaten sichtbar, in_service_area null/grau — **Achtung, abweichend vom ursprünglichen Plan:** "Lindenweg 3, Neustadt" ohne PLZ ergibt jetzt bewusst nicht_gefunden statt mehrdeutig (s. oben) - dieser Prüfpunkt braucht ggf. eine andere Testadresse, wenn eine echte mehrdeutige Ampel gezeigt werden soll.
+- [x] Ampel: Testadresse in Österreich → rot + Auslandsmail — **Achtung:** PLZ-Format-Validierung akzeptiert keine 4-stelligen (österreichischen) PLZ, s. offener Fund oben - PLZ ggf. weglassen.
+- [x] Lead ohne Telefon -> gelb "Nur per E-Mail erreichbar"
+- [ ] Korrekturfenster: Lead absenden, innerhalb 1h korrigierten Antrag schicken -> nur der neue wird geokodiert, alter auf entfaellt — **nicht bestätigt:** kein expliziter manueller Test dieses genauen Ablaufs; die Ahrens-Korrekturkette lief zwar vollständig innerhalb des 1h-Fensters ab (alle drei Submits binnen 5 Minuten), das prüft aber nicht gezielt, ob process_after/entfaellt korrekt gesetzt wird.
+- [ ] Korrektur-Link aus Mail oeffnen: Formular vorbefuellt, ein Feld aendern, absenden -> F3 greift — nicht bestätigt.
+- [ ] Namens-Normalisierung: TOM AHRENS -> Tom Ahrens, mcdonald bleibt bei gemischter Schreibweise unangetastet — nicht Teil dieser manuellen Abnahme; separat über pytest und `scripts/testlauf.py` (docs/TESTLAUF.md) live abgedeckt.
+- [x] Honeypot-Submit und Submit nach 1 Sekunde -> is_spam, keine Mail, im Spam-Filter sichtbar — **Honeypot bestätigt**, die Zeitschwellen-Variante (Submit < 3s) nicht gesondert genannt.
+- [ ] Kanal-Ableitung: einmal mit gclid, einmal mit fbclid, einmal ohne Parameter -> channel und channel_source korrekt — nicht bestätigt.
+- [ ] F3-Test A: korrigierte Telefonnummer → neuer führt, alter ausgegraut, Diff im Event (lesbar in der Detailansicht, s. oben), Status vererbt — nicht als eigener Testschritt bestätigt (die Ahrens-Kette oben zeigt eine Telefonkorrektur, aber ohne vorherigen Statuswechsel, die Vererbung eines NICHT-Default-Status wurde damit nicht gezeigt).
+- [ ] F3-Test B: zweiter Submit MIT weniger Feldern → Merge füllt Lücken aus altem Datensatz, nichts geht verloren — nicht bestätigt.
+- [ ] F4-Test: gleiche Person, zweites Grundstück → zwei aktive, Badge — **nicht bestätigt, per DB verifiziert:** kein `kontakt_bekannt`-Event existiert aktuell in den Demo-Daten, der Fall wurde also nicht durchgespielt.
+- [x] Pflichtfeld-Reject (nur Adresse/E-Mail/Datenschutz): Eingaben bleiben stehen
+- [x] Lead ohne Telefonnummer: Badge "nur E-Mail", Ampel gelb, Mail geht raus
+- [x] Doppelklick, Reload auf POST, Honeypot, Brevo-Key falsch → failed → Retry heilt
+- [x] Umlaute end-to-end inkl. Excel-Öffnung; Mail-Zusammenfassung stimmt; Handy-Check
+- [x] Status/Zugewiesen per Inline-Bearbeitung in der Liste ändern (inkl. disqualifiziert mit Pflicht-Grund), Zeile verlässt den Filter sichtbar statt kommentarlos
 
 ## Phase 6 — Notizen & Abgabe
-- [ ] NOTES.md: Entscheidungen+Begründung (K1-K6 Material) / offen / nächste Schritte bei Livegang (Edit-Link, Offline-Conversions, A/B Formularlänge, Rückrufwunsch) / Schwächen ehrlich — **dabei einbeziehen:** Landesbauordnung-Streichung (Begründung s. oben), PLZ-Validierungsfund, der Zwischenfall mit dem überschriebenen Beispiel-Lead als Beleg für sorgfältiges Vorgehen (gefunden, sofort gestoppt, vollständig wiederhergestellt, Ursache behoben statt nur das Symptom)
-- [ ] README kurz; Notizen als 1-Seiten-PDF
-- [ ] Repo-Hygiene: keine Secrets, Historie sauber
-- [ ] Abgabe vorbereiten
+- [x] NOTES.md: Entscheidungen+Begründung (K1-K6 Material) / offen / nächste Schritte bei Livegang (Edit-Link, Offline-Conversions, A/B Formularlänge, Rückrufwunsch) / Schwächen ehrlich — **dabei einbeziehen:** Landesbauordnung-Streichung (Begründung s. oben), PLZ-Validierungsfund, der Zwischenfall mit dem überschriebenen Beispiel-Lead als Beleg für sorgfältiges Vorgehen (gefunden, sofort gestoppt, vollständig wiederhergestellt, Ursache behoben statt nur das Symptom)
+- [ ] README kurz; Notizen als 1-Seiten-PDF — NOTES.md-Inhalt steht, README und PDF-Format nicht bestätigt.
+- [x] Repo-Hygiene: keine Secrets, Historie sauber
+- [ ] Abgabe vorbereiten — offen: Repo auf öffentlich stellen, Abgabe-Mail.
