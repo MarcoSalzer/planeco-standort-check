@@ -1217,6 +1217,16 @@ def _build_detail_context(
         for e in events
     ]
 
+    # Eigene, kompakte Liste statt nur Teil der allgemeinen Ereignis-Historie
+    # unten (Marco: "ein Textfeld und eine Liste bisheriger Notizen") - dieselbe
+    # bereits geladene events-Liste, nur gefiltert, keine zweite DB-Abfrage.
+    # Neueste zuerst, anders als die Ereignis-Historie (die bleibt chronologisch).
+    notizen = [
+        {"zeitpunkt": format_berlin_datetime(e["created_at"]), "text": e["payload"]["text"]}
+        for e in reversed(events)
+        if e["event_type"] == "notiz_hinzugefuegt"
+    ]
+
     return {
         "lead": row,
         "lead_id": row["id"],
@@ -1232,6 +1242,7 @@ def _build_detail_context(
         "geocode_candidates": _geocode_candidates_for_display(row),
         "ancestors": ancestors_display,
         "events": events_display,
+        "notizen": notizen,
         "duplicate_of_row": duplicate_of_row,
         "superseded_by_row": superseded_by_row,
         "manually_settable_statuses": [(value, status_label(value)) for value in _MANUALLY_SETTABLE_STATUSES],
@@ -1514,6 +1525,22 @@ def retry_lead_geocoding(request: Request, lead_id: str):
         ergebnis = "fehler"
 
     return RedirectResponse(url=f"/admin/leads/{lead_id}?aktion=geocoding&ergebnis={ergebnis}", status_code=303)
+
+
+@router.post("/leads/{lead_id}/notiz")
+def add_lead_notiz(request: Request, lead_id: str, text: str = Form("")):
+    admin_username = _current_admin(request)
+    if not admin_username:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    text = text.strip()
+    if text:
+        with get_connection() as conn:
+            if _fetch_lead(conn, lead_id) is None:
+                raise HTTPException(status_code=404, detail="Lead nicht gefunden.")
+            insert_event(conn, lead_id, "notiz_hinzugefuegt", {"text": text})
+
+    return RedirectResponse(url=f"/admin/leads/{lead_id}", status_code=303)
 
 
 # --- Zeilen-Schnellaktionen in der Liste (Marco, 2026-08-19) ---------------

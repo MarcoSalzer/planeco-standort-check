@@ -95,6 +95,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "ersetzt": "Durch Korrektur ersetzt",
     "kontakt_bekannt": "Kontakt bereits bekannt",
     "unerwarteter_feldwert": "Unerwarteter Feldwert (als „keine Angabe“ gespeichert)",
+    "notiz_hinzugefuegt": "Notiz hinzugefügt",
 }
 
 

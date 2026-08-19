@@ -140,9 +140,10 @@
 
     form.aktionen-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 26rem; }
     form.resend-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    form.notiz-form { display: flex; flex-direction: column; gap: 0.5rem; max-width: 32rem; }
     .form-row { display: flex; flex-direction: column; gap: 0.3rem; }
     .form-row label { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
-    .form-row input, .form-row select {
+    .form-row input, .form-row select, .form-row textarea {
       min-height: 42px;
       padding: 0.5rem 0.6rem;
       font-size: 16px;
@@ -150,7 +151,8 @@
       border-radius: 0.4rem;
       font-family: inherit;
     }
-    .form-row input:focus, .form-row select:focus {
+    .form-row textarea { resize: vertical; }
+    .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
       outline: 2px solid var(--focus);
       outline-offset: 1px;
     }
@@ -159,7 +161,7 @@
       color: var(--muted);
       margin: 0;
     }
-    .aktionen-form button, .resend-form button {
+    .aktionen-form button, .resend-form button, .notiz-form button {
       align-self: flex-start;
       min-height: 42px;
       padding: 0 1rem;
@@ -170,7 +172,11 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .aktionen-form button:hover, .resend-form button:hover { opacity: 0.9; }
+    .aktionen-form button:hover, .resend-form button:hover, .notiz-form button:hover { opacity: 0.9; }
+
+    ul.notizen-liste { list-style: none; margin: 1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+    ul.notizen-liste li { border-left: 2px solid var(--border); padding-left: 0.85rem; }
+    .notiz-text { white-space: pre-wrap; font-size: 0.9rem; margin: 0.2rem 0 0; }
 
     .field-groups { display: flex; flex-direction: column; gap: 1.25rem; }
     .field-group h3 {
@@ -289,6 +295,29 @@
     <div class="card message-card">
       <h3>Anmerkungen (Gesprächseinstieg)</h3>
       <p>{{ message or "– keine Anmerkung angegeben" }}</p>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Notizen</h2>
+      <form method="post" action="/admin/leads/{{ lead_id }}/notiz" class="notiz-form">
+        <div class="form-row">
+          <label for="notiz-text">Neue Notiz</label>
+          <textarea id="notiz-text" name="text" rows="3" placeholder="Im Gespräch geklärt: ..."></textarea>
+        </div>
+        <button type="submit">Notiz speichern</button>
+      </form>
+      {% if notizen %}
+      <ul class="notizen-liste">
+        {% for n in notizen %}
+        <li>
+          <div class="event-time">{{ n.zeitpunkt }}</div>
+          <p class="notiz-text">{{ n.text }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">Noch keine Notizen.</p>
+      {% endif %}
     </div>
 
     <div class="card">

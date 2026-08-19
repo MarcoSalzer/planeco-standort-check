@@ -363,6 +363,14 @@ Nummer; Routing ist Notizen-Punkt "bei Livegang: Rückrufwunsch-Button statt Hot
   superseded-Kette ausgegraut darunter, Event-Historie, **Google-Maps-Link**
   aus lat/lon (kostenlos, kein API-Key — reiner Link maps.google.com/?q=lat,lon)
   als visueller Ein-Blick-Check fürs Sales-Team.
+- **Notizen:** freies Textfeld in der Detailansicht plus Liste bisheriger
+  Einträge (neueste zuerst), je mit Zeitstempel. Schließt die Lücke, dass im
+  Telefonat geklärte Angaben (z.B. eine vom Interessenten korrigierte Adresse)
+  sonst nirgends landen — bewusst kein eigenes Datenfeld, sondern ein weiterer
+  Event-Typ (`notiz_hinzugefuegt`) in der ohnehin vorhandenen Event-Historie,
+  gefiltert für die eigene Liste. Reiner Anhänge-Vorgang, keine bearbeitbaren
+  oder löschbaren Einträge — passt zum Rest des Modells (append-only,
+  Vergangenheit wird nicht überschrieben).
 - Aktionen: Status ändern, assigned_to setzen, disqualify_reason, "Mail erneut
   senden", "Geocoding erneut", globaler Retry-Button.
 
